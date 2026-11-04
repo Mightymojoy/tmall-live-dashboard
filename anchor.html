@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>主播表现 · ITO 天猫直播</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%2317161a'/><rect x='12' y='12' width='8' height='8' fill='%23c9a962'/></svg>">
+<link rel="stylesheet" href="shared.css">
+<style>
+.acard {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 14px 15px 13px; display: flex; flex-direction: column; min-width: 0;
+}
+.ac-head { display: flex; align-items: center; gap: 6px; margin-bottom: 9px; }
+.ac-head b { font-size: 13.5px; font-weight: 600; letter-spacing: .01em; }
+.ac-head em { font-style: normal; margin-left: auto; font-size: 10.5px; color: var(--ink-3); }
+.ac-val { font-size: 21px; font-weight: 600; line-height: 1.2; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.ac-val small { font-size: 10.5px; color: var(--ink-3); font-weight: 500; margin-left: 2px; }
+.ac-sub { font-size: 10.5px; color: var(--ink-3); margin-top: 4px; }
+.ac-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px;
+  margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line-2);
+}
+.ac-grid div { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5px; color: var(--ink-3); gap: 4px; }
+.ac-grid b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+
+/* ---- 02 效率对比 ---- */
+.cmp-tools { display: flex; align-items: center; gap: 12px; }
+.cmp-tip { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.vtabs { display: inline-flex; background: var(--bg); padding: 2px; border-radius: 3px; gap: 2px; }
+.vtabs button {
+  font-family: inherit; font-size: 11.5px; color: var(--ink-2); border: none;
+  background: transparent; padding: 4px 11px; border-radius: 2px; cursor: pointer;
+  white-space: nowrap; transition: .12s; line-height: 1.6;
+}
+.vtabs button:hover { color: var(--ink); background: #fff; }
+.vtabs button.on { background: var(--ink); color: #fff; font-weight: 500; }
+
+.mtx { width: 100%; border-collapse: separate; border-spacing: 2px; font-size: 12px; }
+.mtx thead th {
+  background: #fff; border: none; border-bottom: 2px solid var(--line);
+  text-align: center; font-size: 12px; font-weight: 600; color: var(--ink);
+  padding: 6px 6px 8px; position: sticky; top: 0; z-index: 3; white-space: nowrap;
+}
+.mtx thead th .sh {
+  display: block; font-size: 9.5px; font-weight: 400; color: var(--ink-4);
+  margin-top: 2px; letter-spacing: .02em;
+}
+.mtx th.rix {
+  text-align: left; position: sticky; left: 0; z-index: 4;
+  background: #fff; color: var(--ink-2); font-size: 11.5px; font-weight: 500;
+  padding: 8px 12px 8px 2px; white-space: nowrap; cursor: pointer;
+  border: none; border-bottom: 1px solid var(--line-2);
+  min-width: 104px; width: 104px;
+}
+.mtx thead th.rix {
+  z-index: 5; border-bottom: 2px solid var(--line); color: var(--ink-3);
+  cursor: default; font-size: 11px;
+}
+.mtx tbody th.rix em { font-style: normal; font-size: 9px; color: var(--ink-4); margin-left: 4px; }
+.mtx tbody th.rix:hover { color: var(--gold-d); background: var(--gold-bg); }
+.mtx tr.on th.rix { color: var(--gold-d); font-weight: 700; background: var(--gold-bg); }
+.mtx tr.on th.rix em { color: var(--gold-d); }
+.mtx td {
+  text-align: center; padding: 8px 6px; border: none; border-radius: 2px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px;
+  color: var(--ink); position: relative;
+}
+.mtx td.best { font-weight: 700; }
+.mtx td .bst { position: absolute; right: 4px; top: 3px; font-size: 7.5px; opacity: .42; line-height: 1; }
+.mtx td.sum, .mtx thead th.sum {
+  background: #FBF8F1 !important; font-weight: 700; color: #6B5320;
+  border-left: 1px solid var(--gold-l);
+}
+.mtx tbody tr:hover th.rix { background: var(--gold-bg); }
+
+.heat-legend {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 11px 20px 13px; border-top: 1px solid var(--line-2);
+  font-size: 10.5px; color: var(--ink-3); background: #fff; line-height: 1.7;
+}
+.heat-legend .lg { display: flex; align-items: center; gap: 6px; }
+.heat-legend .sw { width: 44px; height: 10px; border-radius: 1px; display: inline-block; flex: none; }
+.heat-legend .sw.gold { background: linear-gradient(90deg,#FDFBF4,#F7EFDC,#EFE1BF,#C9A962,#9C7C3C,#6B5320); }
+.heat-legend .sw.red { background: linear-gradient(90deg,#FDF8F7,#FAEAE7,#F3D3CD,#E4A79E,#C4594D,#9E2F26); }
+.heat-legend .sw.none { background: #faf8f3; border: 1px solid var(--line); }
+.heat-legend .sep { width: 1px; height: 12px; background: var(--line); }
+
+@media (max-width: 1180px) {
+  .cmp-tip { display: none; }
+}
+
+/* ---- 主播 / 场次类型筛选条 ---- */
+.afbar {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 10px 16px 11px; display: flex; flex-direction: column; gap: 7px;
+  margin-bottom: 22px;
+}
+.af-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 26px; }
+.af-lab {
+  font-size: 11px; color: var(--ink-3); letter-spacing: .1em; flex: none;
+  width: 56px;
+}
+.af-hint { font-size: 10.5px; color: var(--ink-4); margin-left: auto; white-space: nowrap; }
+.af-hint b { color: var(--ink-2); font-weight: 600; }
+.chip.an {
+  border: 1px solid var(--line); background: #fff; color: var(--ink-2);
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+}
+.chip.an i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex: none; }
+.chip.an.on {
+  background: var(--gold-bg); border-color: var(--gold-l); color: var(--ink);
+  font-weight: 500;
+}
+.chip.an:not(.on) { opacity: .58; }
+.chip .cn { margin-left: 5px; font-size: 9.5px; opacity: .62; font-variant-numeric: tabular-nums; }
+.chip.an.allbtn { margin-right: 6px; }
+.chip.an.allbtn:not(.on) { opacity: .85; border-style: dashed; }
+.chip.ty { border: 1px solid var(--line); background: #fff; }
+.chip.ty.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.chip.ty:disabled { opacity: .35; cursor: not-allowed; }
+.chip.ty:disabled:hover { background: #fff; color: var(--ink-2); }
+.chip.ty.on:disabled { background: var(--ink); color: #fff; }
+
+@media (max-width: 1080px) {
+  .af-hint { margin-left: 0; width: 100%; text-align: left; }
+}
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<div id="fbar"></div>
+
+<div class="wrap">
+  <div class="page-hd">
+    <div>
+      <h1>主播表现</h1>
+      <p>真人主播的时间产出与流量承接对比</p>
+    </div>
+    <div class="hd-right" id="hdRight"></div>
+  </div>
+
+  <div class="afbar">
+    <div class="af-row">
+      <span class="af-lab">主播</span>
+      <div class="chips" id="anChips"></div>
+      <span class="af-hint" id="anHint"></span>
+    </div>
+    <div class="af-row">
+      <span class="af-lab">场次类型</span>
+      <div class="chips" id="tyChips"></div>
+      <span class="af-hint" id="tyHint"></span>
+    </div>
+  </div>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">01</span><h2>主播卡片</h2><em id="cardSub"></em>
+      <div class="right" id="cardRight"></div>
+    </div>
+    <div class="alert" id="warn" style="margin-bottom:14px"></div>
+    <div class="grid gauto" id="cards"></div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">02</span><h2>主播效率对比</h2><em id="cmpSub"></em>
+      <div class="right cmp-tools">
+        <span class="cmp-tip" id="cmpTip"></span>
+        <div class="vtabs" id="cmpTabs">
+          <button type="button" data-v="matrix" class="on">对比矩阵</button>
+          <button type="button" data-v="table">排行明细</button>
+        </div>
+      </div>
+    </div>
+    <div class="card flush">
+      <div class="tbl-wrap" id="cmpWrap"></div>
+      <div class="heat-legend" id="cmpLegend"></div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="grid g2">
+      <div class="card">
+        <div class="card-hd"><h3>单场分布</h3><span>横轴时均 UV · 纵轴单小时 GMV</span></div>
+        <div id="scatter" class="chart-wrap"></div>
+        <div class="legend card-ft" id="scatterLegend"></div>
+        <div class="note card-ft" id="scatterNote">点越靠上＝单位时间产出越高；同一主播的点越分散，说明其表现越不稳定。</div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><h3>主播 × 班次</h3><span>单小时 GMV / 场次</span><div class="r" id="mtxRight"></div></div>
+        <div id="matrix" class="card-body"></div>
+        <div class="heat-scale card-ft" id="mtxScale"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">04</span><h2>主播 × 班次明细</h2><em>每个组合一行，样本量单独标注</em>
+    </div>
+    <div class="card flush"><div class="tbl-wrap scroll"><table id="comboTable"></table></div></div>
+  </section>
+
+  <section class="sec"><div class="insight" id="insight"></div></section>
+</div>
+
+<div class="foot">
+  <span id="footMeta"></span>
+  <span>主播维度数据仅来自排班表覆盖期</span>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>
+const AC = ['#c9a962', '#3a5778', '#b3352c', '#2c6b4c', '#6a5b8f', '#8a6d2f', '#4a7c8c', '#a4573b', '#5f7a4a'];
+
+(async function () {
+  try { await loadData(); } catch (e) {
+    document.getElementById('cards').innerHTML = '<div class="empty">' + e.message + '</div>'; return;
+  }
+  document.getElementById('footMeta').textContent =
+    '数据源 ' + D.meta.src + ' + ' + D.meta.sch + ' · 生成于 ' + D.meta.generated;
+
+  const tabs = document.getElementById('cmpTabs');
+  tabs.addEventListener('click', e => {
+    const b = e.target.closest('button[data-v]');
+    if (!b || b.classList.contains('on')) return;
+    CMP_VIEW = b.dataset.v;
+    [...tabs.children].forEach(x => x.classList.toggle('on', x === b));
+    renderCmp();
+  });
+
+  document.getElementById('anChips').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.all) { AF.an = null; renderAll(); return; }
+    if (b.dataset.an) toggleAn(b.dataset.an);
+  });
+  document.getElementById('tyChips').addEventListener('click', e => {
+    const b = e.target.closest('button[data-ty]');
+    if (!b || b.disabled) return;
+    AF.ty = b.dataset.ty;
+    renderAll();
+  });
+
+  bootShell('90', renderAll);
+})();
+
+/* 主播页筛选状态：an=null 表示全选；ty=all 表示不限场次类型 */
+const AF = { an: null, ty: 'all' };
+const TYPES = ['大促', '上新', '常规'];
+
+function availAnchors() {
+  const m = calc.group(F.sessions.filter(s => s.an), s => s.an);
+  return [...m.entries()].sort((a, b) => b[1].length - a[1].length).map(x => x[0]);
+}
+function inAF(s) {
+  if (AF.ty !== 'all' && s.pt !== AF.ty) return false;
+  if (AF.an && !AF.an.has(s.an)) return false;
+  return true;
+}
+const A = () => F.sessions.filter(s => s.an && inAF(s));
+function colorOf(name) {
+  const i = D.anchors.indexOf(name);
+  return AC[(i < 0 ? 0 : i) % AC.length];
+}
+
+function renderAf() {
+  const all = availAnchors();
+  const byAn = calc.group(F.sessions.filter(s => s.an), s => s.an);
+
+  /* 日期区间变化后，清理已不存在的主播，并还原全选状态 */
+  if (AF.an) {
+    const keep = new Set([...AF.an].filter(n => all.includes(n)));
+    AF.an = (keep.size === 0 || keep.size === all.length) ? null : keep;
+  }
+
+  document.getElementById('anChips').innerHTML =
+    '<button type="button" class="chip an allbtn' + (AF.an ? '' : ' on') + '" data-all="1">全部</button>'
+    + all.map(n => {
+      const on = !AF.an || AF.an.has(n);
+      return '<button type="button" class="chip an' + (on ? ' on' : '') + '" data-an="' + n + '">'
+        + '<i style="background:' + colorOf(n) + '"></i>' + n
+        + '<span class="cn">' + byAn.get(n).length + '</span></button>';
+    }).join('');
+
+  const cur = F.sessions.filter(s => s.an);
+  const cnt = { '大促': 0, '上新': 0, '常规': 0 };
+  cur.forEach(s => { if (cnt[s.pt] !== undefined) cnt[s.pt]++; });
+  document.getElementById('tyChips').innerHTML =
+    ['all'].concat(TYPES).map(t => {
+      const n = t === 'all' ? cur.length : cnt[t];
+      return '<button type="button" class="chip ty' + (AF.ty === t ? ' on' : '') + '" data-ty="' + t + '"'
+        + (n === 0 && t !== 'all' ? ' disabled' : '') + '>'
+        + (t === 'all' ? '不限' : t) + '<span class="cn">' + n + '</span></button>';
+    }).join('');
+
+  document.getElementById('anHint').innerHTML =
+    '当前显示 <b>' + A().length + '</b> / ' + cur.length + ' 场'
+    + (AF.an ? '　·　已选 <b>' + AF.an.size + '</b> 人' : '　·　全部主播');
+
+  const nonZero = TYPES.filter(t => cnt[t] > 0);
+  document.getElementById('tyHint').innerHTML = nonZero.length <= 1
+    ? '本区间仅有「' + (nonZero[0] || '—') + '」一类场次，类型筛选暂无区分度'
+    : '场次类型取自「场次信息」标题关键词';
+}
+
+function renderAll() {
+  renderAf();
+  renderWarn();
+  renderCards();
+  renderCmp();
+  renderScatter();
+  renderMatrix();
+  renderCombo();
+  renderInsight();
+}
+
+function byAnchor() {
+  const m = calc.group(A(), s => s.an);
+  return [...m.entries()].map(([k, arr]) => {
+    const r = calc.rollup(arr);
+    r.an = k;
+    const sh = calc.group(arr, s => s.sh);
+    const main = [...sh.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+    r.mainShift = main[0];
+    r.shiftCount = sh.size;
+    return r;
+  }).sort((a, b) => b.hvGmv - a.hvGmv);
+}
+
+/* ---------------- 覆盖提示 ---------------- */
+function renderWarn() {
+  const total = F.roll.n;
+  const withA = F.sessions.filter(s => s.an).length;
+  const shown = A().length;
+  const anyFilter = !!AF.an || AF.ty !== 'all';
+  document.getElementById('cardSub').textContent = F.from + ' ~ ' + F.to;
+  document.getElementById('cardRight').textContent = byAnchor().length + ' 人 · ' + shown + ' 场';
+
+  const el = document.getElementById('warn');
+  if (!withA) {
+    el.innerHTML = '<span>⚠</span><span>所选区间内没有主播排班数据。排班表仅覆盖 <b>' + D.meta.schedFrom + ' ~ '
+      + D.meta.schedTo + '</b>，请把日期范围调到该区间内，或补一份更早的排班表后重跑数据管线。</span>';
+    el.style.display = 'flex';
+    return;
+  }
+  if (!shown) {
+    el.innerHTML = '<span>⚠</span><span>当前筛选下没有可显示的场次。'
+      + (AF.an ? '<b>已选主播为 0 人</b>；' : '')
+      + (AF.ty !== 'all' ? '场次类型限定为「' + AF.ty + '」，本区间该类型无主播场次；' : '')
+      + '可点上方「全部 / 不限」还原。</span>';
+    el.style.display = 'flex';
+    return;
+  }
+  el.innerHTML = '<span>ⓘ</span><span>主播身份来自排班表（覆盖 <b>' + D.meta.schedFrom + ' ~ ' + D.meta.schedTo
+    + '</b>）。本区间 <b>' + total + '</b> 场中 <b>' + withA + '</b> 场有主播（'
+    + fmt.pct(withA / (total || 1), 0) + '）；数字人班次无真人主播，不计入本页。'
+    + (anyFilter ? '<b>当前已筛选，展示 ' + shown + ' 场。</b>' : '区间外的场次在主播维度上是空白，不是业绩为 0。')
+    + '</span>';
+}
+
+/* ---------------- 筛选交互 ---------------- */
+function toggleAn(name) {
+  const all = availAnchors();
+  if (!AF.an) AF.an = new Set(all);
+  if (AF.an.has(name)) AF.an.delete(name); else AF.an.add(name);
+  /* 点到全空或点回全选，都还原为「全部」——主播页没有主播就没有可看的内容 */
+  if (AF.an.size === 0 || AF.an.size === all.length) AF.an = null;
+  renderAll();
+}
+
+/* ---------------- 01 卡片 ---------------- */
+function renderCards() {
+  const rows = byAnchor();
+  const host = document.getElementById('cards');
+  if (!rows.length) { host.innerHTML = '<div class="empty">所选区间内暂无主播场次</div>'; return; }
+  host.innerHTML = rows.map(r => {
+    return '<div class="acard" style="border-top:2px solid ' + colorOf(r.an) + '">'
+      + '<div class="ac-head"><b>' + r.an + '</b>'
+      + '<span class="tag gold">' + r.mainShift + '</span>'
+      + '<em>' + r.n + ' 场</em></div>'
+      + '<div class="ac-val">' + fmt.yuan(r.hvGmv) + '<small>/h</small></div>'
+      + '<div class="ac-sub">成交 ' + fmt.money(r.gmv) + '元 · 场均 ' + fmt.money(r.perSess) + '元</div>'
+      + '<div class="ac-grid">'
+      + '<div><span>时均UV</span><b>' + fmt.int(r.hUv) + '</b></div>'
+      + '<div><span>转化</span><b>' + fmt.pct(r.conv, 2) + '</b></div>'
+      + '<div><span>客单</span><b>' + fmt.yuan(r.aov) + '</b></div>'
+      + '<div><span>退款</span><b style="color:' + (r.rrate > 0.25 ? 'var(--red)' : 'var(--ink)') + '">' + fmt.pct(r.rrate) + '</b></div>'
+      + '</div></div>';
+  }).join('');
+}
+
+/* ---------------- 02 效率对比（矩阵 / 明细双视图） ---------------- */
+/* d: 1 越高越好   -1 越低越好（退款类）   0 中性，只作参考不着色 */
+const CMP = [
+  { k: 'n', lab: '出场场次', d: 1, f: r => fmt.int(r.n) },
+  { k: 'gmv', lab: '成交金额', d: 1, f: r => fmt.money(r.gmv) },
+  { k: 'rf', lab: '退款金额', d: -1, f: r => fmt.money(r.rf) },
+  { k: 'net', lab: '净销售', d: 1, f: r => fmt.money(r.net) },
+  { k: 'durH', lab: '总时长 h', d: 0, f: r => fmt.dec1(r.durH) },
+  { k: 'hvGmv', lab: '单小时 GMV', d: 1, f: r => fmt.yuan(r.hvGmv) },
+  { k: 'hvNet', lab: '单小时 GSV', d: 1, f: r => fmt.yuan(r.hvNet) },
+  { k: 'hUv', lab: '时均 UV', d: 1, f: r => fmt.int(r.hUv) },
+  { k: 'conv', lab: '转化率', d: 1, f: r => fmt.pct(r.conv, 2) },
+  { k: 'acRate', lab: '加购率', d: 1, f: r => fmt.pct(r.acRate, 2) },
+  { k: 'aov', lab: '客单价', d: 1, f: r => fmt.yuan(r.aov) },
+  { k: 'rrate', lab: '退款率', d: -1, f: r => fmt.pct(r.rrate) },
+];
+
+let CMP_VIEW = 'matrix';
+let CMP_SORT = 'hvGmv';
+let CMP_DESC = true;
+
+function cmpSorted() {
+  const rows = byAnchor();
+  const key = CMP_SORT;
+  rows.sort((a, b) => {
+    const va = a[key] === null || a[key] === undefined ? -Infinity : a[key];
+    const vb = b[key] === null || b[key] === undefined ? -Infinity : b[key];
+    return CMP_DESC ? vb - va : va - vb;
+  });
+  return rows;
+}
+
+function sortByCmp(k) {
+  const def = CMP.find(c => c.k === k);
+  if (CMP_SORT === k) CMP_DESC = !CMP_DESC;
+  else { CMP_SORT = k; CMP_DESC = def.d !== -1; }
+  renderCmp();
+}
+
+/* 底色按 t 分 6 级色阶：浅档深字、深档白字，保证任何一格都能读清 */
+const HEAT_STEPS = {
+  '1': [['#FDFBF4', '#17161a'], ['#F7EFDC', '#17161a'], ['#EFE1BF', '#17161a'],
+        ['#C9A962', '#17161a'], ['#9C7C3C', '#ffffff'], ['#6B5320', '#ffffff']],
+  '-1': [['#FDF8F7', '#17161a'], ['#FAEAE7', '#17161a'], ['#F3D3CD', '#17161a'],
+         ['#E4A79E', '#17161a'], ['#C4594D', '#ffffff'], ['#9E2F26', '#ffffff']],
+};
+function heatCell(t, d) {
+  if (d === 0) return { bg: '#F3F0E7', fg: 'var(--ink-2)' };
+  const st = HEAT_STEPS[d < 0 ? '-1' : '1'];
+  const i = Math.max(0, Math.min(st.length - 1, Math.floor(t * st.length)));
+  return { bg: st[i][0], fg: st[i][1] };
+}
+
+function renderCmp() {
+  const rows = cmpSorted();
+  const wrap = document.getElementById('cmpWrap');
+  const legend = document.getElementById('cmpLegend');
+  const def = CMP.find(c => c.k === CMP_SORT);
+
+  document.getElementById('cmpSub').textContent =
+    '按' + (def ? def.lab.replace(/\s/g, '') : '') + (CMP_DESC ? '降序' : '升序')
+    + ' · 点左侧指标名可换排序';
+
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="empty" style="border:none;margin:14px">所选区间内暂无主播场次</div>';
+    legend.innerHTML = '';
+    return;
+  }
+
+  const tot = calc.rollup(A());
+
+  if (CMP_VIEW === 'table') {
+    document.getElementById('cmpTip').textContent = '样本 < 8 场标「样本少」';
+    wrap.innerHTML = rankTableHtml(rows, tot);
+    legend.innerHTML = '<span>明细视图为精确数值，不设底色。切到「对比矩阵」可看强弱分布。</span>';
+    return;
+  }
+
+  document.getElementById('cmpTip').textContent = '金底＝该项占优　红底＝退款偏高　★＝该行最优';
+
+  let h = '<table class="mtx"><thead><tr><th class="rix">主播 / 指标</th>';
+  rows.forEach(r => {
+    h += '<th style="border-top:2px solid ' + colorOf(r.an) + '">' + r.an
+      + '<span class="sh">' + r.mainShift + '班 · ' + r.n + '场</span></th>';
+  });
+  h += '<th class="sum">' + (AF.an ? '已选合计' : '全员') + '</th></tr></thead><tbody>';
+
+  CMP.forEach(c => {
+    const vals = rows.map(r => r[c.k]).filter(v => v !== null && isFinite(v));
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const best = c.d === -1 ? mn : mx;
+    h += '<tr class="' + (CMP_SORT === c.k ? 'on' : '') + '"><th class="rix" data-k="' + c.k + '">'
+      + c.lab + '<em>' + (c.d === 1 ? '↑' : c.d === -1 ? '↓' : '·') + '</em></th>';
+
+    rows.forEach(r => {
+      const v = r[c.k];
+      let style = 'background:#F3F0E7;color:var(--ink-2)', cls = '';
+      if (v !== null && isFinite(v)) {
+        const t = c.d === 0 ? 0 : (mx > mn ? (v - mn) / (mx - mn) : 0.5);
+        const hc = heatCell(t, c.d);
+        style = 'background:' + hc.bg + ';color:' + hc.fg;
+      }
+      if (rows.length > 1 && v === best && c.d !== 0) cls = ' best';
+      const totV = tot[c.k];
+      const dlt = (totV && isFinite(v)) ? (v / totV - 1) : null;
+      const good = c.d === -1 ? v <= totV : v >= totV;
+      const tip = '<b>' + r.an + ' · ' + c.lab.replace(/\s/g, '') + '</b>'
+        + '<div class="tt-row"><i style="background:' + colorOf(r.an) + '"></i>本项<b>' + c.f(r) + '</b></div>'
+        + '<div class="tt-row"><i style="background:#cfc9bb"></i>全员<b>' + c.f(tot) + '</b></div>'
+        + (dlt === null || c.k === 'n' ? ''
+          : '<div class="tt-row"><i style="background:transparent"></i>相对全员<b style="color:'
+            + (good ? '#8a6d2f' : '#b3352c') + '">' + (dlt >= 0 ? '+' : '') + (dlt * 100).toFixed(0) + '%</b></div>');
+      h += '<td class="' + cls.trim() + '" style="' + style + '" data-tip="' + tip.replace(/"/g, '&quot;') + '">'
+        + (cls ? '<span class="bst">★</span>' : '') + c.f(r) + '</td>';
+    });
+    h += '<td class="sum">' + c.f(tot) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  wrap.innerHTML = h;
+
+  legend.innerHTML = '<span class="lg"><i class="sw gold"></i>金色越深＝该指标越高</span>'
+    + '<span class="lg"><i class="sw red"></i>红色越深＝退款越高</span>'
+    + '<span class="lg"><i class="sw none"></i>灰底＝中性行</span>'
+    + '<span class="sep"></span>'
+    + '<span>↑ 越高越好　↓ 越低越好　★ 该行最优</span>'
+    + '<span class="sep"></span>'
+    + '<span>金额单位元，≥1 万显示为「万」</span>';
+
+  if (!wrap.__bound) {
+    wrap.__bound = 1;
+    wrap.addEventListener('mousemove', e => {
+      const td = e.target.closest('td[data-tip]');
+      if (td) showTip(e, td.dataset.tip); else hideTip();
+    });
+    wrap.addEventListener('mouseleave', hideTip);
+    wrap.addEventListener('click', e => {
+      const th = e.target.closest('th[data-k]');
+      if (th) sortByCmp(th.dataset.k);
+    });
+  }
+}
+
+/* 排行明细（精确数值版） */
+function rankTableHtml(rows, t) {
+  let html = '<table id="rankTable"><thead><tr><th>#</th><th>主播</th><th>场次</th><th>成交金额</th><th>净销售</th><th>退款率</th>'
+    + '<th>总时长(h)</th><th>单小时GMV</th><th>单小时GSV</th><th>时均UV</th><th>转化率</th><th>加购率</th><th>客单价</th></tr></thead><tbody>';
+  rows.forEach((r, i) => {
+    html += '<tr>'
+      + '<td style="color:#b3aea3" class="num">' + (i + 1) + '</td>'
+      + '<td><span class="dot" style="background:' + colorOf(r.an) + '"></span><b>' + r.an + '</b></td>'
+      + '<td class="num">' + r.n + (r.n < 8 ? ' <span class="tag mute">样本少</span>' : '') + '</td>'
+      + '<td class="num">' + fmt.money(r.gmv) + '</td>'
+      + '<td class="num">' + fmt.money(r.net) + '</td>'
+      + '<td class="num">' + fmt.pct(r.rrate) + '</td>'
+      + '<td class="num">' + fmt.dec1(r.durH) + '</td>'
+      + '<td class="num"><b>' + fmt.yuan(r.hvGmv) + '</b></td>'
+      + '<td class="num">' + fmt.yuan(r.hvNet) + '</td>'
+      + '<td class="num">' + fmt.int(r.hUv) + '</td>'
+      + '<td class="num">' + fmt.pct(r.conv, 2) + '</td>'
+      + '<td class="num">' + fmt.pct(r.acRate, 2) + '</td>'
+      + '<td class="num">' + fmt.yuan(r.aov) + '</td></tr>';
+  });
+  html += '</tbody><tfoot><tr><td></td><td>' + (AF.an ? '已选合计（' + AF.an.size + '人）' : '全部主播') + '</td><td class="num">' + t.n + '</td>'
+    + '<td class="num">' + fmt.money(t.gmv) + '</td><td class="num">' + fmt.money(t.net) + '</td>'
+    + '<td class="num">' + fmt.pct(t.rrate) + '</td><td class="num">' + fmt.dec1(t.durH) + '</td>'
+    + '<td class="num">' + fmt.yuan(t.hvGmv) + '</td><td class="num">' + fmt.yuan(t.hvNet) + '</td>'
+    + '<td class="num">' + fmt.int(t.hUv) + '</td><td class="num">' + fmt.pct(t.conv, 2) + '</td>'
+    + '<td class="num">' + fmt.pct(t.acRate, 2) + '</td><td class="num">' + fmt.yuan(t.aov) + '</td></tr></tfoot></table>';
+  return html;
+}
+
+/* ---------------- 03 散点 ---------------- */
+function renderScatter() {
+  const pts = A().filter(s => s.hUv && s.hvGmv).map(s => ({
+    x: s.hUv, y: s.hvGmv, c: colorOf(s.an), r: 3.6,
+    title: '<b>' + s.an + ' · ' + s.d + ' ' + s.sh + '</b>'
+      + '<div class="tt-row"><i style="background:' + colorOf(s.an) + '"></i>时均UV<b>' + fmt.int(s.hUv) + '</b></div>'
+      + '<div class="tt-row"><i style="background:' + colorOf(s.an) + '"></i>单小时GMV<b>' + fmt.yuan(s.hvGmv) + '</b></div>'
+      + '<div class="tt-row"><i style="background:' + colorOf(s.an) + '"></i>成交<b>' + fmt.yuan(s.gmv) + '</b></div>',
+  }));
+  const info = scatterChart(document.getElementById('scatter'), {
+    height: 300, points: pts,
+    xFmt: v => fmt.num(v), yFmt: v => fmt.money(v),
+    xLab: '时均 UV →', yLab: '↑ 单小时 GMV',
+  });
+  const used = [...new Set(A().map(s => s.an))];
+  document.getElementById('scatterLegend').innerHTML =
+    used.map(a => '<span><i style="background:' + colorOf(a) + '"></i>' + a + '</span>').join('');
+  document.getElementById('scatterNote').innerHTML = info.overflow
+    ? '<b>' + info.overflow + ' 个超大值场次（最高 ' + fmt.yuan(info.max) + '/h）超出坐标上限，已钉在上边框并以虚线圈标示</b>，悬停可看真实值。'
+    : '点越靠上＝单位时间产出越高；同一主播的点越分散，说明其表现越不稳定。';
+}
+
+/* ---------------- 03b 矩阵 ---------------- */
+function renderMatrix() {
+  const rows = byAnchor();
+  const used = SHIFTS.filter(s => s !== '数字人' && A().some(x => x.sh === s));
+  if (!rows.length) { document.getElementById('matrix').innerHTML = '<div class="empty">暂无数据</div>'; return; }
+
+  const cell = new Map();
+  A().forEach(x => {
+    const k = x.an + '|' + x.sh;
+    if (!cell.has(k)) cell.set(k, []);
+    cell.get(k).push(x);
+  });
+  const vals = [];
+  cell.forEach(arr => { const q = calc.rollup(arr); if (q.hvGmv) vals.push(q.hvGmv); });
+  const mx = vals.length ? Math.max(...vals) : 1, mn = vals.length ? Math.min(...vals) : 0;
+
+  let html = '<div class="heat" style="grid-template-columns:58px repeat(' + used.length + ',minmax(0,1fr));gap:3px">'
+    + '<div class="hh"></div>' + used.map(s => '<div class="hh">' + s + '</div>').join('');
+  rows.forEach(r => {
+    html += '<div class="hr">' + r.an + '</div>';
+    used.forEach(s => {
+      const arr = cell.get(r.an + '|' + s);
+      if (!arr) { html += '<div class="hc" style="background:#faf8f3;color:#cfc9bb">—</div>'; return; }
+      const q = calc.rollup(arr);
+      const t = (q.hvGmv - mn) / (mx - mn || 1);
+      const bg = 'rgba(201,169,98,' + (0.10 + t * 0.80).toFixed(2) + ')';
+      const fg = t > 0.55 ? '#fff' : '#17161a';
+      html += '<div class="hc" style="background:' + bg + ';color:' + fg + '" title="' + r.an + ' · ' + s + ' · ' + q.n + '场">'
+        + '<div style="font-weight:600">' + fmt.int(q.hvGmv) + '</div>'
+        + '<div style="font-size:9.5px;opacity:.75">' + q.n + '场</div></div>';
+    });
+  });
+  html += '</div>';
+  document.getElementById('matrix').innerHTML = html;
+  document.getElementById('mtxRight').textContent = rows.length + ' 人 × ' + used.length + ' 班';
+  document.getElementById('mtxScale').innerHTML =
+    '<span>' + fmt.int(mn) + '</span><span class="bar"></span><span>' + fmt.int(mx) + '</span>'
+    + '<span style="margin-left:8px">单小时 GMV（元）低 → 高</span>';
+}
+
+/* ---------------- 04 明细 ---------------- */
+function renderCombo() {
+  const m = calc.group(A(), s => s.an + '||' + s.sh);
+  const list = [];
+  m.forEach((arr, k) => {
+    const [an, sh] = k.split('||');
+    const r = calc.rollup(arr);
+    r.an = an; r.sh = sh;
+    list.push(r);
+  });
+  list.sort((a, b) => (a.an === b.an ? b.hvGmv - a.hvGmv : a.an.localeCompare(b.an, 'zh')));
+
+  let html = '<thead><tr><th>主播</th><th>班次</th><th>场次</th><th>成交金额</th><th>净销售</th><th>退款率</th>'
+    + '<th>单小时GMV</th><th>时均UV</th><th>转化率</th><th>客单价</th><th>样本</th></tr></thead><tbody>';
+  if (!list.length) html += '<tr><td colspan="11" style="text-align:center;color:#8b867d;padding:30px">所选区间内暂无主播场次</td></tr>';
+  list.forEach(r => {
+    html += '<tr>'
+      + '<td>' + r.an + '</td>'
+      + '<td><span class="tag" style="border-color:transparent;background:' + SC[r.sh] + '1f;color:' + SC[r.sh] + '">' + r.sh + '</span></td>'
+      + '<td class="num">' + r.n + '</td>'
+      + '<td class="num">' + fmt.money(r.gmv) + '</td>'
+      + '<td class="num">' + fmt.money(r.net) + '</td>'
+      + '<td class="num">' + fmt.pct(r.rrate) + '</td>'
+      + '<td class="num"><b>' + fmt.yuan(r.hvGmv) + '</b></td>'
+      + '<td class="num">' + fmt.int(r.hUv) + '</td>'
+      + '<td class="num">' + fmt.pct(r.conv, 2) + '</td>'
+      + '<td class="num">' + fmt.yuan(r.aov) + '</td>'
+      + '<td class="num">' + (r.n >= 8 ? '<span class="tag green">充足</span>' : r.n >= 5 ? '<span class="tag">一般</span>' : '<span class="tag red">偏少</span>') + '</td>'
+      + '</tr>';
+  });
+  document.getElementById('comboTable').innerHTML = html + '</tbody>';
+}
+
+/* ---------------- 05 结论 ---------------- */
+function renderInsight() {
+  const rows = byAnchor();
+  const li = [];
+  if (rows.length >= 2) {
+    const top = rows[0], bot = rows[rows.length - 1];
+    li.push('单小时 GMV 最高的是 <b>' + top.an + '</b>（<b>' + fmt.yuan(top.hvGmv) + '</b>，' + top.n + ' 场，主战 '
+      + top.mainShift + ' 班），最低是 ' + bot.an + '（' + fmt.yuan(bot.hvGmv) + '，' + bot.n + ' 场），相差 <b>'
+      + fmt.gap(top.hvGmv, bot.hvGmv) + '</b>。');
+    const uvTop = rows.slice().sort((a, b) => b.hUv - a.hUv)[0];
+    const cvTop = rows.slice().sort((a, b) => b.conv - a.conv)[0];
+    if (uvTop.an !== cvTop.an) {
+      li.push('流量型与转化型不是同一人：<b>' + uvTop.an + '</b> 时均 UV 最高（' + fmt.int(uvTop.hUv) + '），<b>'
+        + cvTop.an + '</b> 转化率最高（' + fmt.pct(cvTop.conv, 2) + '）。排班可考虑把流量型放在承接强的班次。');
+    } else {
+      li.push('<b>' + uvTop.an + '</b> 同时是流量与转化双高（时均 UV ' + fmt.int(uvTop.hUv) + '，转化 '
+        + fmt.pct(cvTop.conv, 2) + '），是最稳的承接位。');
+    }
+  }
+  const rr = rows.slice().sort((a, b) => b.rrate - a.rrate)[0];
+  if (rr) {
+    li.push('退款率最高的是 <b>' + rr.an + '</b>（<b>' + fmt.pct(rr.rrate) + '</b>），需核对其常推商品是否存在尺码或预期不符问题。');
+  }
+  if (rows.length) {
+    li.push('样本提示：本区间 ' + A().length + ' 场由 ' + rows.length + ' 人分担，人均约 <b>'
+      + (A().length / rows.length).toFixed(0) + ' 场</b>。场次少于 8 场的主播受随机波动影响大，不建议直接据此做绩效结论。');
+  }
+  document.getElementById('insight').innerHTML =
+    '<h3>主播结论</h3><ol>' + li.map(x => '<li>' + x + '</li>').join('') + '</ol>'
+    + '<div class="src">主播归属来自排班表；数字人班次无主播；跨班次比较已完成时长归一。</div>';
+}
+
+onResize(() => { renderScatter(); });
+</script>
+</body>
+</html>

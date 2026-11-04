@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>退款与流量 · ITO 天猫直播</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%2317161a'/><rect x='12' y='12' width='8' height='8' fill='%23c9a962'/></svg>">
+<link rel="stylesheet" href="shared.css">
+<style>
+.gbar { display: flex; flex-direction: column; gap: 10px; }
+.gb-name {
+  font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; margin-bottom: 3px;
+}
+.gb-row { display: flex; align-items: center; gap: 8px; }
+.gb-track { flex: 1; height: 6px; background: var(--line-2); border-radius: 1px; overflow: hidden; }
+.gb-fill { height: 100%; border-radius: 1px; }
+.gb-val { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; font-weight: 600; }
+.kvr {
+  display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 11.5px; padding: 5px 0; border-bottom: 1px dashed var(--line-2);
+}
+.kvr:last-child { border-bottom: none; }
+.kvr span { color: var(--ink-2); }
+.kvr b { font-variant-numeric: tabular-nums; font-weight: 600; }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<div id="fbar"></div>
+
+<div class="wrap">
+  <div class="page-hd">
+    <div>
+      <h1>退款与流量</h1>
+      <p>全店退款结构、直播流量漏斗与商品级退款定位</p>
+    </div>
+    <div class="hd-right" id="hdRight"></div>
+  </div>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">01</span><h2>店铺退款概览</h2><em id="shopRange"></em>
+      <div class="right">全店口径（不限直播）</div>
+    </div>
+    <div class="grid g5" id="shopKpi"></div>
+    <div class="alert" id="crossCheck" style="margin-top:12px"></div>
+  </section>
+
+  <section class="sec">
+    <div class="grid g2">
+      <div class="card">
+        <div class="card-hd"><h3>退款场景构成</h3><span id="sceneSub"></span></div>
+        <div id="sceneBox" class="card-body"></div>
+        <div class="legend card-ft" id="sceneLegend"></div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><h3>全店退款率走势</h3><span id="rrSub"></span><div class="r" id="rrRight"></div></div>
+        <div id="rrChart" class="chart-wrap"></div>
+        <div class="note card-ft">退款率 = 退款金额 ÷ 支付金额，按订单支付日归集。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">03</span><h2>直播流量漏斗</h2><em id="fnSub"></em>
+      <div class="right">区间合计，括号为该区间场均</div>
+    </div>
+    <div class="grid g2 start">
+      <div class="card">
+        <div class="card-hd"><h3>主漏斗：进人 → 成交</h3></div>
+        <div id="funnel1"></div>
+        <div class="note card-ft">加购与成交不是严格包含关系（存在未加购直接下单），「加购 → 成交」仅作量级参考。</div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><h3>频道页进房</h3></div>
+        <div id="funnel2"></div>
+        <div class="legend card-ft" style="margin-top:2px;color:var(--ink-3)">关键转化率</div>
+        <div id="convList" class="card-ft"></div>
+        <div class="note card-ft" id="fnNote2"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">04</span><h2>品类与商品退款</h2><em id="catSub"></em>
+      <div class="right">商品级数据来自单品退款表</div>
+    </div>
+    <div class="grid g2 start">
+      <div class="card flush"><div class="tbl-wrap"><table id="catTable"></table></div></div>
+      <div class="card">
+        <div class="card-hd"><h3>TOP 商品退款率</h3><span>按支付金额前 10</span></div>
+        <div id="goodsBars" class="card-body"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">05</span><h2>单品明细</h2><em>按支付金额前 20</em>
+      <div class="right">可滚动查看</div>
+    </div>
+    <div class="card flush"><div class="tbl-wrap scroll"><table id="goodsTable"></table></div></div>
+  </section>
+
+  <section class="sec"><div class="insight" id="insight"></div></section>
+</div>
+
+<div class="foot">
+  <span id="footMeta"></span>
+  <span>发货额口径：支付金额 − 未发货仅退款 − 已收到货仅退款 − 在途仅退款</span>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  try { await loadData(); } catch (e) {
+    document.getElementById('shopKpi').innerHTML = '<div class="empty">' + e.message + '</div>'; return;
+  }
+  document.getElementById('footMeta').textContent =
+    '数据源 ' + D.meta.src + ' · 生成于 ' + D.meta.generated;
+  bootShell('30', renderAll);
+})();
+
+function renderAll() {
+  renderShopKpi();
+  renderScene();
+  renderRR();
+  renderFunnel();
+  renderCat();
+  renderGoods();
+  renderInsight();
+}
+
+const shopSum = k => F.shop.reduce((t, x) => t + (x[k] || 0), 0);
+
+/* ---------------- 01 ---------------- */
+function renderShopKpi() {
+  const pay = shopSum('pay'), rf = shopSum('allRefund'), only = shopSum('onlyRefund');
+  const ship = F.shipTotal;
+  document.getElementById('shopRange').textContent = F.from + ' ~ ' + F.to;
+
+  const items = [
+    { lab: '支付金额', ...mm(pay), key: 1, sub: F.shop.length + ' 天 · 日均 ' + fmt.money(pay / (F.shop.length || 1)) + '元' },
+    { lab: '实际发货额', ...mm(ship), key: 1, sub: '占支付 ' + fmt.pct(ship / pay) },
+    { lab: '仅退款金额', ...mm(only), sub: '未发货 + 在途 + 已收货' },
+    { lab: '退款总额', ...mm(rf), sub: '含退货退款' },
+    { lab: '退款率', val: fmt.pct(rf / pay), unit: '', key: 1, sub: '退款 ÷ 支付' },
+  ];
+  function mm(v) { const [n, u] = fmt.mpart(v); return { val: n, unit: (u || '') + '元' }; }
+  document.getElementById('shopKpi').innerHTML = kpiHtml(items);
+
+  /* 交叉校验：商品级 vs 店铺日级 */
+  const gp = F.goods.reduce((t, g) => t + g.pay, 0);
+  const gr = F.goods.reduce((t, g) => t + g.refund, 0);
+  const diff = pay ? Math.abs(gp - pay) / pay : 0;
+  document.getElementById('crossCheck').innerHTML = '<span>✓</span><span>'
+    + '交叉校验：商品级支付合计 <b>' + fmt.money(gp) + '元</b>，店铺日级合计 <b>' + fmt.money(pay) + '元</b>，偏差 <b>'
+    + (diff * 100).toFixed(2) + '%</b> —— 两个独立数据源互证' + (diff < 0.01 ? '通过' : '存在差异，需排查') + '。'
+    + '本区间整体退款率 <b>' + fmt.pct(gr / gp) + '</b>，显著高于常规电商水平，对外引用前建议与天猫后台口径复核。</span>';
+}
+
+/* ---------------- 02 ---------------- */
+const SCENES = [
+  ['未发货仅退款', '#c9a962'],
+  ['在途仅退款', '#3a5778'],
+  ['已收到货仅退款', '#6a5b8f'],
+  ['退货退款', '#b3352c'],
+];
+
+function renderScene() {
+  const totals = {};
+  SCENES.forEach(([k]) => totals[k] = 0);
+  F.shop.forEach(r => SCENES.forEach(([k]) => { totals[k] += (r.scenes && r.scenes[k]) || 0; }));
+  const sum = Object.values(totals).reduce((a, b) => a + b, 0);
+  document.getElementById('sceneSub').textContent = F.from + ' ~ ' + F.to;
+
+  const items = SCENES.map(([k, c]) => ({
+    name: k, v: totals[k], c, txt: fmt.money(totals[k]) + ' <span style="color:#8b867d;font-weight:400">' + fmt.pct(totals[k] / sum) + '</span>',
+  })).sort((a, b) => b.v - a.v);
+
+  document.getElementById('sceneBox').innerHTML =
+    barsHtml(items)
+    + '<div style="display:flex;height:9px;margin-top:16px;border-radius:1px;overflow:hidden">'
+    + SCENES.map(([k, c]) => '<div style="width:' + (sum ? (totals[k] / sum * 100).toFixed(2) : 0) + '%;background:' + c + '"></div>').join('')
+    + '</div>'
+    + '<div class="note">合计 ' + fmt.money(sum) + '元。仅退款类（前三项）合计占 '
+    + fmt.pct((totals['未发货仅退款'] + totals['在途仅退款'] + totals['已收到货仅退款']) / sum)
+    + '，是发货前后可拦截的部分。</div>';
+  document.getElementById('sceneLegend').innerHTML =
+    SCENES.map(([k, c]) => '<span><i style="background:' + c + '"></i>' + k + '</span>').join('');
+}
+
+function renderRR() {
+  const grain = F.days <= 120 ? 'day' : 'week';
+  const b = new Map();
+  F.shop.forEach(x => {
+    if (!x.pay) return;
+    const k = grain === 'day' ? x.d : dU.weekStart(x.d);
+    const o = b.get(k) || { pay: 0, rf: 0 };
+    o.pay += x.pay; o.rf += (x.allRefund || 0);
+    b.set(k, o);
+  });
+  const rows = [...b.keys()].sort().map(k => ({ k, v: b.get(k).pay ? b.get(k).rf / b.get(k).pay : null }));
+  const avg = rows.length ? rows.reduce((t, r) => t + r.v, 0) / rows.length : null;
+  document.getElementById('rrSub').textContent = (grain === 'day' ? '按日' : '按周') + ' · ' + rows.length + ' 点';
+  document.getElementById('rrRight').textContent = '区间 ' + fmt.pct(shopSum('allRefund') / (shopSum('pay') || 1));
+
+  lineChart(document.getElementById('rrChart'), {
+    height: 226,
+    labels: rows.map(r => fmt.md(r.k)),
+    series: [{ name: '退款率', color: '#b3352c', data: rows.map(r => r.v), area: true, width: 1.6 }],
+    yFmt: v => (v * 100).toFixed(0) + '%',
+    maxXLabels: 10,
+    avgLine: avg ? { value: avg, label: '均值 ' + fmt.pct(avg), color: '#b3352c' } : null,
+  });
+}
+
+/* ---------------- 03 ---------------- */
+function renderFunnel() {
+  const n = F.roll.n || 1;
+  const s = k => calc.sum(F.sessions, k);
+  document.getElementById('fnSub').textContent = F.from + ' ~ ' + F.to + ' · ' + n + ' 场';
+
+  const steps1 = [
+    { lab: '观看人数', v: s('uv'), note: '场均 ' + fmt.int(s('uv') / n) + ' 人' },
+    { lab: '商品点击人数', v: s('gcp'), note: '场均 ' + fmt.int(s('gcp') / n) + ' 人' },
+    { lab: '加购人数', v: s('ac'), note: '场均 ' + fmt.int(s('ac') / n) + ' 人' },
+    { lab: '成交人数', v: s('bp'), note: '场均 ' + fmt.int(s('bp') / n) + ' 人' },
+  ];
+  document.getElementById('funnel1').innerHTML = funnelHtml(steps1, '#c9a962');
+
+  const steps2 = [
+    { lab: '频道页曝光人数', v: s('ep'), note: '场均 ' + fmt.int(s('ep') / n) + ' 人' },
+    { lab: '频道页点击人数', v: s('cp'), note: '曝光点击率 ' + fmt.pct(s('cp') / (s('ep') || 1), 1) },
+  ];
+  document.getElementById('funnel2').innerHTML = funnelHtml(steps2, '#3a5778');
+  const cpShare = s('cp') / (s('uv') || 1);
+
+  const conv = [
+    ['频道页曝光 → 点击', s('cp') / (s('ep') || 1)],
+    ['频道页点击占观看', cpShare],
+    ['观看 → 商品点击', s('gcp') / (s('uv') || 1)],
+    ['商品点击 → 加购', s('ac') / (s('gcp') || 1)],
+    ['加购 → 成交', s('bp') / (s('ac') || 1)],
+    ['观看 → 成交', s('bp') / (s('uv') || 1)],
+  ];
+  document.getElementById('convList').innerHTML = conv.map(([lab, v]) =>
+    '<div class="kvr"><span>' + lab + '</span><b>' + fmt.pct(v, 2) + '</b></div>').join('');
+
+  document.getElementById('fnNote2').innerHTML =
+    '频道页点击人数占全部观看人数的 <b>' + fmt.pct(cpShare, 2) + '</b>，进房主力不是频道页，而是推荐与关注。';
+}
+
+/* ---------------- 04 品类 ---------------- */
+function renderCat() {
+  document.getElementById('catSub').textContent = F.from + ' ~ ' + F.to;
+  const m = new Map();
+  F.goods.forEach(g => {
+    const k = g.cat || '未匹配';
+    const o = m.get(k) || { cat: k, pay: 0, rf: 0, n: 0 };
+    o.pay += g.pay; o.rf += g.refund; o.n++;
+    m.set(k, o);
+  });
+  const rows = [...m.values()].sort((a, b) => b.pay - a.pay);
+  const tp = rows.reduce((t, x) => t + x.pay, 0);
+
+  let html = '<thead><tr><th>大类</th><th>商品数</th><th>支付金额</th><th>占比</th><th>退款金额</th><th>退款率</th></tr></thead><tbody>';
+  rows.forEach(r => {
+    const rate = r.pay ? r.rf / r.pay : null;
+    const col = rate > 0.4 ? 'var(--red)' : rate > 0.25 ? 'var(--gold-d)' : 'var(--green)';
+    html += '<tr><td>' + r.cat + '</td><td class="num">' + r.n + '</td>'
+      + '<td class="num">' + fmt.money(r.pay) + '</td>'
+      + '<td class="num">' + fmt.pct(r.pay / tp) + '</td>'
+      + '<td class="num">' + fmt.money(r.rf) + '</td>'
+      + '<td class="num" style="color:' + col + ';font-weight:600">' + fmt.pct(rate) + '</td></tr>';
+  });
+  const t = rows.reduce((o, r) => ({ n: o.n + r.n, pay: o.pay + r.pay, rf: o.rf + r.rf }), { n: 0, pay: 0, rf: 0 });
+  html += '</tbody><tfoot><tr><td>合计</td><td class="num">' + t.n + '</td><td class="num">' + fmt.money(t.pay)
+    + '</td><td class="num">100%</td><td class="num">' + fmt.money(t.rf) + '</td>'
+    + '<td class="num">' + fmt.pct(t.rf / t.pay) + '</td></tr></tfoot>';
+  document.getElementById('catTable').innerHTML = html;
+}
+
+function renderGoods() {
+  const top = F.goods.filter(g => g.pay > 0).slice(0, 10);
+  const mx = Math.max(...top.map(g => g.rate || 0), 0.01);
+  document.getElementById('goodsBars').innerHTML = '<div class="gbar">' + top.map(g => {
+    const rate = g.rate || 0;
+    const c = rate > 0.4 ? '#b3352c' : rate > 0.25 ? '#c9a962' : '#2c6b4c';
+    return '<div><div class="gb-name" title="' + g.name + '">' + g.name + '</div>'
+      + '<div class="gb-row"><div class="gb-track"><div class="gb-fill" style="width:'
+      + Math.max(rate / mx * 100, 2).toFixed(1) + '%;background:' + c + '"></div></div>'
+      + '<span class="gb-val" style="color:' + c + '">' + fmt.pct(rate) + '</span></div></div>';
+  }).join('') + '</div>';
+
+  let html = '<thead><tr><th>商品</th><th>大类</th><th>产品</th><th>支付金额</th><th>退款金额</th><th>退款率</th></tr></thead><tbody>';
+  if (!F.goods.length) html += '<tr><td colspan="6" style="text-align:center;color:#8b867d;padding:30px">所选区间内暂无单品数据</td></tr>';
+  F.goods.slice(0, 20).forEach(g => {
+    const rate = g.rate || 0;
+    html += '<tr><td class="name-cell" title="' + g.name + '">' + g.name + '</td>'
+      + '<td>' + g.cat + '</td><td>' + g.prod + '</td>'
+      + '<td class="num">' + fmt.money(g.pay) + '</td>'
+      + '<td class="num">' + fmt.money(g.refund) + '</td>'
+      + '<td class="num" style="color:' + (rate > 0.4 ? 'var(--red)' : 'var(--ink)') + ';font-weight:600">' + fmt.pct(rate) + '</td></tr>';
+  });
+  document.getElementById('goodsTable').innerHTML = html + '</tbody>';
+}
+
+/* ---------------- 06 ---------------- */
+function renderInsight() {
+  const pay = shopSum('pay'), rf = shopSum('allRefund'), only = shopSum('onlyRefund');
+  const li = [];
+  li.push('本区间全店退款率 <b>' + fmt.pct(rf / pay) + '</b>，其中「仅退款」类占退款总额 <b>' + fmt.pct(only / rf)
+    + '</b>。这部分在发货前或途中即可拦截，是压降退款最直接的抓手。');
+
+  const bad = F.goods.filter(g => g.pay > 50000 && (g.rate || 0) > 0.35).slice(0, 3);
+  if (bad.length) {
+    li.push('高退款商品（支付额 >5 万且退款率 >35%）：'
+      + bad.map(g => '<b>' + g.name.slice(0, 16) + '</b>（' + fmt.pct(g.rate) + '）').join('、')
+      + '。建议核对详情页尺码表与实物色差。');
+  }
+
+  const uv = calc.sum(F.sessions, 'uv'), gcp = calc.sum(F.sessions, 'gcp'), bp = calc.sum(F.sessions, 'bp');
+  if (uv) {
+    li.push('直播观看 <b>' + fmt.money(uv) + '</b> 人次，商品点击率仅 <b>' + fmt.pct(gcp / uv, 2) + '</b>，成交转化 <b>'
+      + fmt.pct(bp / uv, 2) + '</b>。瓶颈在「看的人不点商品」这一环，优先优化讲解节奏与商品卡露出，而非继续放量。');
+  }
+
+  const topCat = [...new Set(F.goods.map(g => g.cat))].map(c => {
+    const arr = F.goods.filter(g => g.cat === c);
+    return { c, pay: arr.reduce((t, g) => t + g.pay, 0), rf: arr.reduce((t, g) => t + g.refund, 0) };
+  }).sort((a, b) => b.pay - a.pay)[0];
+  if (topCat) {
+    li.push('最大品类是 <b>' + topCat.c + '</b>（支付 ' + fmt.money(topCat.pay) + '元），其退款率 <b>'
+      + fmt.pct(topCat.rf / topCat.pay) + '</b>，是退款大盘的主要影响因素。');
+  }
+
+  document.getElementById('insight').innerHTML =
+    '<h3>退款与流量结论</h3><ol>' + li.map(x => '<li>' + x + '</li>').join('') + '</ol>'
+    + '<div class="src">退款率 = 退款金额 ÷ 支付金额；商品级与店铺日级两套独立数据已交叉校验。</div>';
+}
+
+onResize(() => { renderRR(); });
+</script>
+</body>
+</html>

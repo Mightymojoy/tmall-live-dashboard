@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>班次分析 · ITO 天猫直播</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%2317161a'/><rect x='12' y='12' width='8' height='8' fill='%23c9a962'/></svg>">
+<link rel="stylesheet" href="shared.css">
+<style>
+.sc { padding: 16px 16px 14px; }
+.sc .card-hd { margin-bottom: 6px; }
+.sc .kpi-v { font-size: 22px; }
+.sc .spk { margin-top: 10px; }
+.sc .sc-ft { font-size: 10.5px; color: var(--ink-3); margin-top: 6px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<header id="topbar"></header>
+<div id="fbar"></div>
+
+<div class="wrap">
+  <div class="page-hd">
+    <div>
+      <h1>班次分析</h1>
+      <p id="shiftHoursLine">按时段看产出与效率</p>
+    </div>
+    <div class="hd-right" id="hdRight"></div>
+  </div>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">01</span><h2>班次分工</h2><em id="shiftSub"></em>
+      <div class="right" id="shiftRight"></div>
+    </div>
+    <div class="grid g4" id="shiftCards"></div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">02</span><h2>各班次产出走势</h2><em id="trendSub">纵轴独立，用于看形状</em>
+      <div class="right">数值水平对比见「04 班次明细」</div>
+    </div>
+    <div class="grid g4" id="trendCards"></div>
+  </section>
+
+  <section class="sec">
+    <div class="grid g2">
+      <div class="card">
+        <div class="card-hd"><h3>效率分布</h3><span>横轴时均 UV · 纵轴单小时 GMV</span></div>
+        <div id="scatter" class="chart-wrap"></div>
+        <div class="legend card-ft" id="scatterLegend"></div>
+        <div class="note card-ft" id="scatterNote">每点为某区间某班次。右上＝流量与产出双优；左上＝人少但效率高；右下＝人多但不转化。</div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><h3>星期 × 班次</h3><span>平均单小时 GMV</span><div class="r" id="heatRight"></div></div>
+        <div id="heat" class="card-body"></div>
+        <div class="heat-scale card-ft" id="heatScale"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h">
+      <span class="idx">04</span><h2>班次明细</h2><em id="tblSub"></em>
+      <div class="right">对比列为本区间 vs 上一等长区间</div>
+    </div>
+    <div class="card flush"><div class="tbl-wrap"><table id="shiftTable"></table></div></div>
+  </section>
+
+  <section class="sec"><div class="insight" id="insight"></div></section>
+</div>
+
+<div class="foot">
+  <span id="footMeta"></span>
+  <span>比率均按分子分母重算，非逐场平均</span>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  try { await loadData(); } catch (e) {
+    document.getElementById('shiftCards').innerHTML = '<div class="empty">' + e.message + '</div>'; return;
+  }
+  document.getElementById('footMeta').textContent =
+    '数据源 ' + D.meta.src + ' · 场次 ' + D.meta.sessions + ' 场 · 生成于 ' + D.meta.generated;
+  /* 班次开播时间取自数据实际分布，不写死 */
+  const hr = D.meta.shiftHours || {};
+  const parts = SHIFTS.filter(s => hr[s] !== undefined).map(s => {
+    const h = Math.round(hr[s]);
+    return s + (s === '数字人' ? ' ' : '班 ') + String(h).padStart(2, '0') + ':00';
+  });
+  document.getElementById('shiftHoursLine').textContent = parts.join(' · ') + ' —— 按时段看产出与效率';
+  bootShell('90', renderAll);
+})();
+
+function renderAll() {
+  renderCards();
+  renderTrends();
+  renderScatter();
+  renderHeat();
+  renderTable();
+  renderInsight();
+}
+
+const shiftGroups = () => calc.group(F.sessions, s => s.sh);
+
+/* ---------------- 01 ---------------- */
+function renderCards() {
+  const m = shiftGroups();
+  const total = F.roll.gmv;
+  document.getElementById('shiftSub').textContent = F.from + ' ~ ' + F.to;
+  document.getElementById('shiftRight').textContent = F.roll.n + ' 场 · ' + fmt.dec1(F.roll.durH) + ' 小时';
+
+  document.getElementById('shiftCards').innerHTML = SHIFTS.filter(s => m.has(s)).map(s => {
+    const r = calc.rollup(m.get(s));
+    const prev = F.prevSessions.filter(x => x.sh === s);
+    const p = calc.rollup(prev);
+    const [n, u] = fmt.mpart(r.hvGmv);
+    return '<div class="card sc" style="border-top:2px solid ' + SC[s] + '">'
+      + '<div class="card-hd"><h3><span class="dot" style="background:' + SC[s] + '"></span>' + s + '</h3>'
+      + '<span>' + fmt.pct(r.gmv / total, 0) + ' 占比</span>'
+      + '<div class="r">' + deltaHtml(r.hvGmv, p.hvGmv) + '</div></div>'
+      + '<div class="kpi-v num">' + n + '<small>' + (u || '') + '元/h</small></div>'
+      + '<div class="kpi-s">' + r.n + ' 场 · 场均 ' + fmt.money(r.perSess) + '元</div>'
+      + '<div class="sc-ft">平均 ' + fmt.dec1(r.durPer) + ' h/场 · 时均 UV ' + fmt.int(r.hUv) + '<br>'
+      + '转化 ' + fmt.pct(r.conv, 2) + ' · 退款率 ' + fmt.pct(r.rrate) + ' · 客单 ' + fmt.yuan(r.aov) + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+/* ---------------- 02 小倍数 ---------------- */
+function renderTrends() {
+  const grain = grainOf(F.days);
+  const gname = { day: '按日', week: '按周', month: '按月' }[grain];
+  document.getElementById('trendSub').textContent = gname + ' · 纵轴独立，用于看形状';
+
+  const host = document.getElementById('trendCards');
+  host.innerHTML = '';
+  SHIFTS.forEach(s => {
+    const arr = F.sessions.filter(x => x.sh === s);
+    if (!arr.length) return;
+    const rows = trimTail(groupByGrain(arr, grain), grain);
+    const values = rows.map(r => r.hvGmv).filter(v => v);
+    const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+    const peak = rows.slice().sort((a, b) => b.hvGmv - a.hvGmv)[0];
+
+    const card = document.createElement('div');
+    card.className = 'card sc';
+    card.innerHTML = '<div class="card-hd"><h3><span class="dot" style="background:' + SC[s] + '"></span>' + s + '</h3>'
+      + '<div class="r">区间均值</div></div>'
+      + '<div style="font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em">'
+      + fmt.yuan(mean) + '<span style="font-size:10.5px;color:#8b867d;font-weight:500">/h</span></div>'
+      + '<div class="sc-ft">区间峰值 ' + fmt.yuan(peak.hvGmv) + '（' + peak.k + '）</div>';
+    const box = document.createElement('div');
+    box.className = 'spk';
+    card.appendChild(box);
+    host.appendChild(card);
+
+    lineChart(box, {
+      height: 108,
+      labels: rows.map(r => grainLabel(r.k, grain)),
+      series: [{ name: s, color: SC[s], data: rows.map(r => r.hvGmv), area: true, width: 1.6 }],
+      yFmt: v => fmt.money(v),
+      maxXLabels: 3,
+      ticks: 3,
+      minPad: .2,
+      allowNeg: false,
+    });
+  });
+}
+
+/* ---------------- 03 散点 ---------------- */
+function renderScatter() {
+  const grain = grainOf(F.days);
+  const pts = [];
+  SHIFTS.forEach(s => {
+    const arr = F.sessions.filter(x => x.sh === s);
+    const rows = trimTail(groupByGrain(arr, grain), grain);
+    rows.forEach(r => {
+      if (r.hUv && r.hvGmv) {
+        pts.push({
+          x: r.hUv, y: r.hvGmv, c: SC[s],
+          title: '<b>' + r.k + ' · ' + s + '</b>'
+            + '<div class="tt-row"><i style="background:' + SC[s] + '"></i>时均UV<b>' + fmt.int(r.hUv) + '</b></div>'
+            + '<div class="tt-row"><i style="background:' + SC[s] + '"></i>单小时GMV<b>' + fmt.yuan(r.hvGmv) + '</b></div>'
+            + '<div class="tt-row"><i style="background:' + SC[s] + '"></i>场次<b>' + r.n + '</b></div>',
+        });
+      }
+    });
+  });
+  const info = scatterChart(document.getElementById('scatter'), {
+    height: 296,
+    points: pts,
+    xFmt: v => fmt.num(v),
+    yFmt: v => fmt.money(v),
+    xLab: '时均 UV →',
+    yLab: '↑ 单小时 GMV',
+  });
+  const used = SHIFTS.filter(s => F.sessions.some(x => x.sh === s));
+  document.getElementById('scatterLegend').innerHTML =
+    used.map(s => '<span><i style="background:' + SC[s] + '"></i>' + s + '</span>').join('')
+    + '<span style="color:#b3aea3">虚线为均值</span>';
+  document.getElementById('scatterNote').innerHTML = info.overflow
+    ? '每点为某区间某班次。虚线为均值；<b>' + info.overflow + ' 个超大值点（最高 ' + fmt.yuan(info.max)
+    + '/h）超出坐标上限，已钉在上边框并以虚线圈标示</b>，悬停可看真实值。'
+    : '每点为某区间某班次。右上＝流量与产出双优；左上＝人少但效率高；右下＝人多但不转化。';
+}
+
+/* ---------------- 03b 热力 ---------------- */
+function renderHeat() {
+  const WD = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  const m = new Map();
+  for (const s of F.sessions) {
+    const wd = (dU.parse(s.d).getDay() + 6) % 7;
+    const k = wd + '|' + s.sh;
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(s);
+  }
+  const used = SHIFTS.filter(s => F.sessions.some(x => x.sh === s));
+  const all = [];
+  for (let w = 0; w < 7; w++) used.forEach(s => {
+    const arr = m.get(w + '|' + s);
+    if (arr) { const r = calc.rollup(arr); if (r.hvGmv) all.push(r.hvGmv); }
+  });
+  const mx = all.length ? Math.max(...all) : 1;
+  const mn = all.length ? Math.min(...all) : 0;
+  const colorFn = v => {
+    if (!v) return { bg: '#faf8f3', fg: '#c9c3b6' };
+    const t = (v - mn) / (mx - mn || 1);
+    return { bg: 'rgba(201,169,98,' + (0.10 + t * 0.80).toFixed(2) + ')', fg: t > 0.55 ? '#fff' : '#17161a' };
+  };
+  const rows = WD.map((lab, w) => ({ lab, k: w }));
+  document.getElementById('heat').innerHTML = heatHtml(
+    rows, used, (w, s) => {
+      const arr = m.get(w + '|' + s);
+      if (!arr) return null;
+      const r = calc.rollup(arr);
+      return r.hvGmv || null;
+    },
+    v => fmt.int(v), colorFn
+  );
+  document.getElementById('heatRight').textContent = WD.length + ' 天 × ' + used.length + ' 班';
+  document.getElementById('heatScale').innerHTML =
+    '<span>' + fmt.int(mn) + '</span><span class="bar"></span><span>' + fmt.int(mx) + '</span>'
+    + '<span style="margin-left:8px">低 → 高（单小时 GMV，元）</span>';
+}
+
+/* ---------------- 04 明细 ---------------- */
+function renderTable() {
+  const cur = shiftGroups();
+  document.getElementById('tblSub').textContent = F.from + ' ~ ' + F.to;
+  const mapPrev = calc.group(F.prevSessions, s => s.sh);
+  const total = F.roll.gmv;
+
+  let html = '<thead><tr><th>班次</th><th>场次</th><th>成交金额</th><th>GMV占比</th><th>净销售</th><th>退款率</th>'
+    + '<th>总时长(h)</th><th>场均时长</th><th>单小时GMV</th><th>时均UV</th><th>转化率</th><th>加购率</th><th>客单价</th><th>GMV环比</th></tr></thead><tbody>';
+
+  SHIFTS.filter(s => cur.has(s)).forEach(s => {
+    const a = calc.rollup(cur.get(s));
+    const p = calc.rollup(mapPrev.get(s) || []);
+    html += '<tr>'
+      + '<td><span class="dot" style="background:' + SC[s] + '"></span>' + s + '</td>'
+      + '<td class="num">' + a.n + '</td>'
+      + '<td class="num"><b>' + fmt.money(a.gmv) + '</b></td>'
+      + '<td class="num">' + fmt.pct(a.gmv / total) + '</td>'
+      + '<td class="num">' + fmt.money(a.net) + '</td>'
+      + '<td class="num">' + fmt.pct(a.rrate) + '</td>'
+      + '<td class="num">' + fmt.dec1(a.durH) + '</td>'
+      + '<td class="num">' + fmt.dec1(a.durPer) + '</td>'
+      + '<td class="num"><b>' + fmt.yuan(a.hvGmv) + '</b></td>'
+      + '<td class="num">' + fmt.int(a.hUv) + '</td>'
+      + '<td class="num">' + fmt.pct(a.conv, 2) + '</td>'
+      + '<td class="num">' + fmt.pct(a.acRate, 2) + '</td>'
+      + '<td class="num">' + fmt.yuan(a.aov) + '</td>'
+      + '<td class="num">' + (p.n ? deltaHtml(a.gmv, p.gmv) : '—') + '</td>'
+      + '</tr>';
+  });
+
+  const t = F.roll;
+  html += '</tbody><tfoot><tr>'
+    + '<td>合计</td><td class="num">' + t.n + '</td>'
+    + '<td class="num">' + fmt.money(t.gmv) + '</td><td class="num">100%</td>'
+    + '<td class="num">' + fmt.money(t.net) + '</td><td class="num">' + fmt.pct(t.rrate) + '</td>'
+    + '<td class="num">' + fmt.dec1(t.durH) + '</td><td class="num">' + fmt.dec1(t.durPer) + '</td>'
+    + '<td class="num">' + fmt.yuan(t.hvGmv) + '</td><td class="num">' + fmt.int(t.hUv) + '</td>'
+    + '<td class="num">' + fmt.pct(t.conv, 2) + '</td><td class="num">' + fmt.pct(t.acRate, 2) + '</td>'
+    + '<td class="num">' + fmt.yuan(t.aov) + '</td>'
+    + '<td class="num">' + (F.prevRoll.n ? deltaHtml(t.gmv, F.prevRoll.gmv) : '—') + '</td>'
+    + '</tr></tfoot>';
+
+  document.getElementById('shiftTable').innerHTML = html;
+}
+
+/* ---------------- 05 ---------------- */
+function renderInsight() {
+  const cur = shiftGroups();
+  const r = {};
+  SHIFTS.forEach(s => { if (cur.has(s)) r[s] = calc.rollup(cur.get(s)); });
+  const li = [];
+  const human = SHIFTS.filter(s => s !== '数字人' && r[s]);
+
+  if (human.length > 1) {
+    const best = human.slice().sort((a, b) => r[b].hvGmv - r[a].hvGmv)[0];
+    const worst = human.slice().sort((a, b) => r[a].hvGmv - r[b].hvGmv)[0];
+    li.push('真人班次中 <b>' + best + '</b> 单小时 GMV 最高（<b>' + fmt.yuan(r[best].hvGmv) + '</b>），<b>'
+      + worst + '</b> 最低（' + fmt.yuan(r[worst].hvGmv) + '），差距 <b>'
+      + fmt.gap(r[best].hvGmv, r[worst].hvGmv) + '</b>。');
+  }
+
+  if (r['数字人']) {
+    const rd = r['数字人'];
+    const hAvg = human.length ? human.reduce((t, s) => t + r[s].hvGmv, 0) / human.length : null;
+    const hDur = human.length ? human.reduce((t, s) => t + r[s].durPer, 0) / human.length : null;
+    const rDur = rd.durPer;
+    const longN = F.sessions.filter(s => s.sh === '数字人' && s.flag === 'long').length;
+    if (hAvg && hDur) {
+      li.push('<b>先看时长再比效率</b>：数字人平均 <b>' + fmt.dec1(rDur) + ' 小时/场</b>（本区间 ' + longN
+        + ' 场超 12 小时），真人班次平均 <b>' + fmt.dec1(hDur) + ' 小时/场</b>，分母差 <b>'
+        + (rDur / hDur).toFixed(1) + ' 倍</b>。');
+      const norm = rd.gmv / (rd.n * hDur);
+      li.push('按时长归一后，数字人等效单小时约 <b>' + fmt.yuan(norm) + '</b>，为真人班次均值（' + fmt.yuan(hAvg)
+        + '）的 <b>' + (norm / hAvg * 100).toFixed(0) + '%</b>。这才是可比的数字人效率。');
+    }
+    li.push('数字人退款率 <b>' + fmt.pct(rd.rrate) + '</b>、转化率 ' + fmt.pct(rd.conv, 2) + '、客单价 '
+      + fmt.yuan(rd.aov) + '；本区间 ' + rd.n + ' 场，占总场次 <b>' + fmt.pct(rd.n / F.roll.n, 0) + '</b>。');
+  }
+
+  const peak = SHIFTS.filter(s => r[s]).sort((a, b) => r[b].hUv - r[a].hUv)[0];
+  if (peak) {
+    li.push('流量最高的是 <b>' + peak + '</b> 班次（时均 UV ' + fmt.int(r[peak].hUv) + '），但转化率 '
+      + fmt.pct(r[peak].conv, 2) + '；' + (peak === '晚' ? '晚班流量与成交双强，是排班资源的首选。' : '需结合转化率判断流量质量。'));
+  }
+
+  document.getElementById('insight').innerHTML =
+    '<h3>班次结论</h3><ol>' + li.map(x => '<li>' + x + '</li>').join('') + '</ol>'
+    + '<div class="src">数字人班次（00:00 起挂机）无真人主播，不计入主播维度。</div>';
+}
+
+onResize(() => { renderTrends(); renderScatter(); });
+</script>
+</body>
+</html>
