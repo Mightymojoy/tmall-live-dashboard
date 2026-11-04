@@ -2,6 +2,19 @@
 
 独立于抖音看板的一套天猫直播经营分析，数据源为天猫直播后台导出表 + 主播排班表。
 
+## 线上地址
+
+<https://mightymojoy.github.io/tmall-live-dashboard/>
+
+| 页面 | 链接 |
+|---|---|
+| 总览 | <https://mightymojoy.github.io/tmall-live-dashboard/index.html> |
+| 班次分析 | <https://mightymojoy.github.io/tmall-live-dashboard/shift.html> |
+| 主播表现 | <https://mightymojoy.github.io/tmall-live-dashboard/anchor.html> |
+| 退款与流量 | <https://mightymojoy.github.io/tmall-live-dashboard/quality.html> |
+
+仓库：<https://github.com/Mightymojoy/tmall-live-dashboard>（`main` 分支根目录 → GitHub Pages）
+
 ## 文件
 
 | 文件 | 作用 |
@@ -73,6 +86,16 @@ python build_data.py --src "新的直播字段.xlsx" --sch "新的排班表.xlsx
 然后刷新页面即可，无需改任何前端代码。
 
 > `data.js` 与 `data.json` 会同时生成。前者让页面可以直接双击打开，后者用于服务器/GitHub Pages。
+
+更新线上版本：
+
+```bash
+git add -A
+git commit -m "更新数据"
+git push
+```
+
+推送后约 30–60 秒 GitHub Pages 自动重建，线上即生效。
 
 ## 指标口径
 
