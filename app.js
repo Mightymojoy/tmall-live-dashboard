@@ -280,6 +280,36 @@ const NAV = [
   ['quality.html', '退款与流量'],
 ];
 
+/* 数据更新角标：颜色=新鲜度，点击=绕过缓存强制重载 */
+function stampHtml() {
+  const m = D.meta;
+  const g = m.generated || '';
+  const t = g ? new Date(g.replace(' ', 'T')) : null;
+  const ok = t && !isNaN(t.getTime());
+  const hrs = ok ? (Date.now() - t.getTime()) / 3600e3 : null;
+  const cls = hrs === null ? '' : hrs > 24 * 7 ? ' stale' : hrs > 36 ? ' aging' : '';
+  const short = g ? g.slice(5, 16).replace('-', '/') : '—';
+  const age = hrs === null ? ''
+    : hrs < 1 ? Math.max(1, Math.round(hrs * 60)) + ' 分钟前'
+      : hrs < 48 ? Math.round(hrs) + ' 小时前'
+        : Math.round(hrs / 24) + ' 天前';
+  return `<button class="stamp${cls}" id="stamp" type="button"
+      aria-label="数据更新于 ${g}，点击强制重新加载">
+      <i class="stamp-dot"></i>
+      <span class="stamp-lab">数据更新</span>
+      <b>${short}</b>
+      ${age ? `<span class="stamp-age">${age}</span>` : ''}
+      <span class="stamp-pop" role="tooltip">
+        <div class="sp-row"><span>数据生成</span><b>${g || '—'}</b></div>
+        <div class="sp-row"><span>数据截止</span><b>${m.dateTo || '—'}</b></div>
+        <div class="sp-row"><span>覆盖场次</span><b>${fmt.int(m.sessions)} 场</b></div>
+        <div class="sp-row"><span>源表</span><b>${m.src || '—'}</b></div>
+        <div class="sp-hr"></div>
+        <div class="sp-tip">点击强制重新加载，可确认线上是否为最新版本（绕过浏览器与 CDN 缓存）</div>
+      </span>
+    </button>`;
+}
+
 function mountShell() {
   const cur = location.pathname.split('/').pop() || 'index.html';
 
@@ -295,7 +325,14 @@ function mountShell() {
       <nav class="nav">
         ${NAV.map(([h, t]) => `<a href="${h}" class="${h === cur ? 'on' : ''}">${t}</a>`).join('')}
       </nav>
+      ${stampHtml()}
     </div>`;
+    const st = document.getElementById('stamp');
+    if (st) st.onclick = () => {
+      const u = new URL(location.href);
+      u.searchParams.set('_cb', Date.now());
+      location.replace(u.toString());
+    };
   }
 
   const fb = document.getElementById('fbar');

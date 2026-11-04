@@ -249,7 +249,7 @@ def main():
     with_anchor = [s for s in sessions if s['an']]
 
     meta = {
-        'generated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'generated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'src': os.path.basename(args.src),
         'sch': os.path.basename(args.sch),
         'sessions': len(sessions),
