@@ -23,6 +23,30 @@
 }
 .ac-grid div { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5px; color: var(--ink-3); gap: 4px; }
 .ac-grid b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+/* 卡片底部目标进度：条满即 100%，超出用金字标注数值 */
+.ac-goal { margin-top: 9px; }
+.ac-goal .gl { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5px; color: var(--ink-3); margin-bottom: 4px; }
+.ac-goal .gl b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 11px; }
+.ac-goal .gl .gr { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ac-goal .gt { height: 3px; background: #EFEBE0; border-radius: 2px; overflow: hidden; }
+.ac-goal .gt i { display: block; height: 100%; background: var(--gold); }
+.ac-goal .gt i.over { background: #9a7a2a; }
+.ac-goal .gt i.low { background: #b3352c; }
+.ac-goal .gm { font-size: 9.5px; color: var(--ink-4); margin-top: 3px; }
+
+/* 目标口径条：一行说清区间目标、同口径成交、覆盖率 */
+.goalbar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 9px 14px; margin-bottom: 10px;
+  background: #FBF8F0; border: 1px solid var(--line); border-left: 2px solid var(--gold);
+  font-size: 11.5px; color: var(--ink-2);
+}
+.goalbar .gb-it { display: inline-flex; align-items: baseline; gap: 5px; }
+.goalbar b { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; font-size: 13px; }
+.goalbar .gb-sep { width: 1px; height: 13px; background: var(--line); }
+.goalbar .gb-note { margin-left: auto; color: var(--ink-3); font-size: 10.5px; }
+.goalbar .gb-warn { color: #8a6d2f; }
+.gstar { font-size: 10px; margin-left: 2px; opacity: .7; color: inherit; }
 
 /* ---- 02 效率对比 ---- */
 .cmp-tools { display: flex; align-items: center; gap: 12px; }
@@ -131,6 +155,8 @@
 
 @media (max-width: 1080px) {
   .af-hint { margin-left: 0; width: 100%; text-align: left; }
+  /* 窄屏优先留数据，口径说明由图例和 tooltip 承担 */
+  .goalbar .gb-note { display: none; }
 }
 </style>
 </head>
@@ -180,6 +206,7 @@
         </div>
       </div>
     </div>
+    <div class="goalbar" id="goalBar"></div>
     <div class="card flush">
       <div class="tbl-wrap" id="cmpWrap"></div>
       <div class="heat-legend" id="cmpLegend"></div>
@@ -334,6 +361,7 @@ function renderAll() {
   renderAf();
   renderWarn();
   renderCards();
+  renderGoalBar();
   renderCmp();
   renderScatter();
   renderMatrix();
@@ -341,8 +369,66 @@ function renderAll() {
   renderInsight();
 }
 
+/* ---------------- 目标承接与达成率 ---------------- */
+/* 目标表只给到「日 × 班次」，没有主播级目标。主播场次在本区间内
+   「日期 + 班次」唯一（实测 0 处冲突），因此把该班次当天的目标整笔归给这场主播。
+   以下情况返回 null，一律不按 0 处理：
+   · 日期不在目标表内（目标表只覆盖 2026-10-01 起，选更早区间时会出现）
+   · 该班次当天目标为 0（源表目标挂到了别的班次，如 10-20） */
+function goalOf(s) {
+  const arr = D.targets && D.targets[s.d];
+  if (!arr) return null;
+  const v = arr[SHIFTS.indexOf(s.sh)] || 0;
+  return v > 0 ? v : null;
+}
+
+/* 分子分母同口径：只统计「有目标的场次」，其成交才计入分子。
+   missAct 记录被排除场次的成交额——不参与达成率，但必须让人知道它存在，
+   否则「成交 186 万 / 目标 71 万 = 73.6%」看起来像算错 */
+function goalAgg(arr) {
+  let tar = 0, act = 0, hit = 0, miss = 0, missAct = 0;
+  arr.forEach(s => {
+    const t = goalOf(s);
+    if (t === null) { miss++; missAct += (s.gmv || 0); return; }
+    tar += t; act += (s.gmv || 0); hit++;
+  });
+  return { tar, act, hit, miss, missAct, n: arr.length, rate: tar > 0 ? act / tar : null };
+}
+
+/* 同班次基准：不受主播多选影响，只跟日期区间与活动筛选走。
+   作用是剥离「晚班目标被高估」这类结构差异——绝对达成率低不等于人差。 */
+function benchMap() {
+  const base = F.sessions.filter(s => s.an && (!AF.rn || AF.rn.has(rnOf(s))));
+  const m = {};
+  SHIFTS.forEach(sh => {
+    const g = goalAgg(base.filter(s => s.sh === sh));
+    if (g.rate !== null) m[sh] = g.rate;
+  });
+  return m;
+}
+
+/* 主播的「班次内相对表现」：按其各场次目标加权，得到该主播所处班次结构的基准率，
+   再用实际达成率 ÷ 基准率。1.00 = 与同班次整体持平，>1 为跑赢同班次。 */
+function relOf(arr, bench) {
+  const ws = {};
+  let wsum = 0;
+  arr.forEach(s => {
+    const t = goalOf(s);
+    if (t === null || bench[s.sh] === undefined) return;
+    ws[s.sh] = (ws[s.sh] || 0) + t;
+    wsum += t;
+  });
+  if (!wsum) return null;
+  let b = 0;
+  Object.keys(ws).forEach(sh => { b += bench[sh] * ws[sh]; });
+  b /= wsum;
+  const g = goalAgg(arr);
+  return (b > 0 && g.rate !== null) ? g.rate / b : null;
+}
+
 function byAnchor() {
   const m = calc.group(A(), s => s.an);
+  const bench = benchMap();
   return [...m.entries()].map(([k, arr]) => {
     const r = calc.rollup(arr);
     r.an = k;
@@ -350,6 +436,14 @@ function byAnchor() {
     const main = [...sh.entries()].sort((a, b) => b[1].length - a[1].length)[0];
     r.mainShift = main[0];
     r.shiftCount = sh.size;
+    const g = goalAgg(arr);
+    r.tar = g.tar;
+    r.gmvCov = g.act;
+    r.gHit = g.hit;
+    r.gMiss = g.miss;
+    r.gMissAct = g.missAct;
+    r.tRate = g.rate;
+    r.rel = relOf(arr, bench);
     return r;
   }).sort((a, b) => b.hvGmv - a.hvGmv);
 }
@@ -407,6 +501,40 @@ function toggleRhythm(name) {
 }
 
 /* ---------------- 01 卡片 ---------------- */
+/* 达成率配色与班次页一致：≥100% 金、85~100% 蓝灰、70~85% 灰、<70% 红 */
+function rateColor(v) {
+  if (v === null || v === undefined) return 'var(--ink-3)';
+  if (v >= 1) return '#9a7a2a';
+  if (v >= .85) return '#3a5778';
+  if (v >= .7) return '#6f6a61';
+  return '#b3352c';
+}
+function rateCls(v) { return v === null ? '' : v >= 1 ? 'over' : v < .7 ? 'low' : ''; }
+
+/* 目标口径条：把区间目标、同口径成交、覆盖率一次说清，避免只看到一个百分比 */
+function renderGoalBar() {
+  const el = document.getElementById('goalBar');
+  const g = goalAgg(A());
+  if (!g.tar) {
+    el.innerHTML = '<span class="gb-note" style="margin-left:0">本区间主播场次没有对应的销售目标。'
+      + '目标表只覆盖 ' + D.meta.targetFrom + ' ~ ' + D.meta.targetTo
+      + '，把日期范围调进该区间才能看达成率。</span>';
+    return;
+  }
+  el.innerHTML =
+    '<span class="gb-it"><span>区间目标</span><b>' + fmt.money(g.tar) + '</b><span>元</span></span>'
+    + '<span class="gb-sep"></span>'
+    + '<span class="gb-it"><span>同口径成交</span><b>' + fmt.money(g.act) + '</b><span>元</span></span>'
+    + '<span class="gb-sep"></span>'
+    + '<span class="gb-it"><span>达成</span><b style="color:' + rateColor(g.rate) + '">'
+    + fmt.pct(g.rate, 1) + '</b></span>'
+    + '<span class="gb-sep"></span>'
+    + '<span class="gb-it" style="color:var(--ink-3)">覆盖 <b style="font-size:12px">' + g.hit + '</b> / ' + g.n + ' 场</span>'
+    + (g.miss ? '<span class="gb-warn">· ' + g.miss + ' 场无目标' + (g.missAct ? '（' + fmt.money(g.missAct) + '元成交）' : '')
+      + '未计入</span>' : '')
+    + '<span class="gb-note">目标按「日 × 班次」整笔归给该场主播</span>';
+}
+
 function renderCards() {
   const rows = byAnchor();
   const host = document.getElementById('cards');
@@ -423,7 +551,16 @@ function renderCards() {
       + '<div><span>转化</span><b>' + fmt.pct(r.conv, 2) + '</b></div>'
       + '<div><span>客单</span><b>' + fmt.yuan(r.aov) + '</b></div>'
       + '<div><span>退款</span><b style="color:' + (r.rrate > 0.25 ? 'var(--red)' : 'var(--ink)') + '">' + fmt.pct(r.rrate) + '</b></div>'
-      + '</div></div>';
+      + '</div>'
+      + (r.tRate === null ? '<div class="ac-goal"><div class="gm">本区间无对应目标</div></div>'
+        : '<div class="ac-goal">'
+        + '<div class="gl"><span>目标 <b>' + fmt.money(r.tar) + '</b>元</span>'
+        + '<span class="gr" style="color:' + rateColor(r.tRate) + '">达成 ' + fmt.pct(r.tRate, 1) + '</span></div>'
+        + '<div class="gt"><i class="' + rateCls(r.tRate) + '" style="width:'
+        + Math.min(100, r.tRate * 100).toFixed(1) + '%"></i></div>'
+        + (r.gMiss ? '<div class="gm">' + r.gMiss + ' 场当日该班次目标为 0，未计入</div>' : '')
+        + '</div>')
+      + '</div>';
   }).join('');
 }
 
@@ -432,6 +569,16 @@ function renderCards() {
 const CMP = [
   { k: 'n', lab: '出场场次', d: 1, f: r => fmt.int(r.n) },
   { k: 'gmv', lab: '成交金额', d: 1, f: r => fmt.money(r.gmv) },
+  /* 目标达成率是按「目标加权的成交」算的，与左侧成交金额列口径不同：
+     只在有目标的场次上比较，因此两者数值不会严格等比 */
+  { k: 'tRate', lab: '目标达成', d: 1,
+    f: r => (r.tRate === null || r.tRate === undefined) ? '—' : fmt.pct(r.tRate, 1),
+    tip: r => r.tRate === null ? '' :
+      '<div class="tt-row"><i style="background:#cfc9bb"></i>承接目标<b>' + fmt.money(r.tar) + '</b></div>'
+      + '<div class="tt-row"><i style="background:#cfc9bb"></i>同口径成交<b>' + fmt.money(r.gmvCov) + '</b></div>'
+      + (r.rel === null ? '' : '<div class="tt-row"><i style="background:transparent"></i>同班次基准<b>'
+        + (r.rel >= 1 ? '跑赢 ' : '落后 ') + Math.abs((r.rel - 1) * 100).toFixed(0) + '%</b></div>'),
+  },
   { k: 'rf', lab: '退款金额', d: -1, f: r => fmt.money(r.rf) },
   { k: 'net', lab: '净销售', d: 1, f: r => fmt.money(r.net) },
   { k: 'durH', lab: '总时长 h', d: 0, f: r => fmt.dec1(r.durH) },
@@ -497,6 +644,12 @@ function renderCmp() {
   }
 
   const tot = calc.rollup(A());
+  /* 合计行也要带上目标字段，否则「目标达成」行的合计格会渲染成 undefined */
+  const gTot = goalAgg(A());
+  tot.tar = gTot.tar;
+  tot.gmvCov = gTot.act;
+  tot.tRate = gTot.rate;
+  tot.rel = relOf(A(), benchMap());
 
   if (CMP_VIEW === 'table') {
     document.getElementById('cmpTip').textContent = '样本 < 8 场标「样本少」';
@@ -515,7 +668,10 @@ function renderCmp() {
   h += '<th class="sum">' + (AF.an ? '已选合计' : '全员') + '</th></tr></thead><tbody>';
 
   CMP.forEach(c => {
-    const vals = rows.map(r => r[c.k]).filter(v => v !== null && isFinite(v));
+    /* 目标达成：色阶与「最优」都只在样本 ≥5 场的主播里定区间，
+       否则 1~2 场的极端值（如 266%）会把整行压成一片浅色 */
+    const pool = c.k === 'tRate' ? rows.filter(r => r.n >= 5) : rows;
+    const vals = pool.map(r => r[c.k]).filter(v => v !== null && isFinite(v));
     const mn = Math.min(...vals), mx = Math.max(...vals);
     const best = c.d === -1 ? mn : mx;
     h += '<tr class="' + (CMP_SORT === c.k ? 'on' : '') + '"><th class="rix" data-k="' + c.k + '">'
@@ -536,11 +692,16 @@ function renderCmp() {
       const tip = '<b>' + r.an + ' · ' + c.lab.replace(/\s/g, '') + '</b>'
         + '<div class="tt-row"><i style="background:' + colorOf(r.an) + '"></i>本项<b>' + c.f(r) + '</b></div>'
         + '<div class="tt-row"><i style="background:#cfc9bb"></i>全员<b>' + c.f(tot) + '</b></div>'
+        + (c.tip ? c.tip(r) : '')
         + (dlt === null || c.k === 'n' ? ''
           : '<div class="tt-row"><i style="background:transparent"></i>相对全员<b style="color:'
             + (good ? '#8a6d2f' : '#b3352c') + '">' + (dlt >= 0 ? '+' : '') + (dlt * 100).toFixed(0) + '%</b></div>');
+      /* 目标达成：* = 该主播有场次当日目标为 0，已排除在达成率之外
+         （样本 <5 场的情况表头已写场次数，不再另加符号，避免符号过多） */
+      const mark = c.k === 'tRate' && r.gMiss
+        ? '<span class="gstar" title="' + r.gMiss + ' 场当日该班次目标为 0，未计入">*</span>' : '';
       h += '<td class="' + cls.trim() + '" style="' + style + '" data-tip="' + tip.replace(/"/g, '&quot;') + '">'
-        + (cls ? '<span class="bst">★</span>' : '') + c.f(r) + '</td>';
+        + (cls ? '<span class="bst">★</span>' : '') + c.f(r) + mark + '</td>';
     });
     h += '<td class="sum">' + c.f(tot) + '</td></tr>';
   });
@@ -552,6 +713,8 @@ function renderCmp() {
     + '<span class="lg"><i class="sw none"></i>灰底＝中性行</span>'
     + '<span class="sep"></span>'
     + '<span>↑ 越高越好　↓ 越低越好　★ 该行最优</span>'
+    + '<span class="sep"></span>'
+    + '<span>目标达成 <b>*</b> ＝ 含无目标场次，该部分成交未计入（成交金额列仍为全部场次）</span>'
     + '<span class="sep"></span>'
     + '<span>金额单位元，≥1 万显示为「万」</span>';
 
@@ -571,7 +734,14 @@ function renderCmp() {
 
 /* 排行明细（精确数值版） */
 function rankTableHtml(rows, t) {
-  let html = '<table id="rankTable"><thead><tr><th>#</th><th>主播</th><th>场次</th><th>成交金额</th><th>净销售</th><th>退款率</th>'
+  const relTxt = v => v === null || v === undefined ? '—' : (v >= 1 ? '+' : '') + ((v - 1) * 100).toFixed(0) + '%';
+  const relCol = v => v === null || v === undefined ? '#8b867d' : v >= 1 ? '#9a7a2a' : '#6f6a61';
+  /* 悬停说明分子是什么：成交金额列含全部场次，达成率的分子只含有目标的场次，两者不等 */
+  const gTip = r => r.tRate === null ? '该主播本区间场次无对应目标'
+    : '同口径成交 ' + fmt.yuan(r.gmvCov) + ' ÷ 目标 ' + fmt.yuan(r.tar)
+      + (r.gMiss ? '　（另 ' + r.gMiss + ' 场无目标，' + fmt.yuan(r.gMissAct) + ' 成交未计入）' : '');
+  let html = '<table id="rankTable"><thead><tr><th>#</th><th>主播</th><th>场次</th><th>成交金额</th>'
+    + '<th>承接目标</th><th>目标达成</th><th>同班次</th><th>净销售</th><th>退款率</th>'
     + '<th>总时长(h)</th><th>单小时GMV</th><th>单小时GSV</th><th>时均UV</th><th>转化率</th><th>加购率</th><th>客单价</th></tr></thead><tbody>';
   rows.forEach((r, i) => {
     html += '<tr>'
@@ -579,6 +749,11 @@ function rankTableHtml(rows, t) {
       + '<td><span class="dot" style="background:' + colorOf(r.an) + '"></span><b>' + r.an + '</b></td>'
       + '<td class="num">' + r.n + (r.n < 8 ? ' <span class="tag mute">样本少</span>' : '') + '</td>'
       + '<td class="num">' + fmt.money(r.gmv) + '</td>'
+      + '<td class="num" style="color:#8b867d">' + (r.tar ? fmt.money(r.tar) : '—') + '</td>'
+      + '<td class="num"><b style="color:' + rateColor(r.tRate) + '" title="' + gTip(r) + '">'
+      + (r.tRate === null ? '—' : fmt.pct(r.tRate, 1)) + '</b>'
+      + (r.gMiss ? '<span class="gstar" title="' + gTip(r) + '">*</span>' : '') + '</td>'
+      + '<td class="num" style="color:' + relCol(r.rel) + '">' + relTxt(r.rel) + '</td>'
       + '<td class="num">' + fmt.money(r.net) + '</td>'
       + '<td class="num">' + fmt.pct(r.rrate) + '</td>'
       + '<td class="num">' + fmt.dec1(r.durH) + '</td>'
@@ -590,7 +765,12 @@ function rankTableHtml(rows, t) {
       + '<td class="num">' + fmt.yuan(r.aov) + '</td></tr>';
   });
   html += '</tbody><tfoot><tr><td></td><td>' + (AF.an ? '已选合计（' + AF.an.size + '人）' : '全部主播') + '</td><td class="num">' + t.n + '</td>'
-    + '<td class="num">' + fmt.money(t.gmv) + '</td><td class="num">' + fmt.money(t.net) + '</td>'
+    + '<td class="num">' + fmt.money(t.gmv) + '</td>'
+    + '<td class="num">' + (t.tar ? fmt.money(t.tar) : '—') + '</td>'
+    + '<td class="num"><b style="color:' + rateColor(t.tRate) + '">'
+    + (t.tRate === null ? '—' : fmt.pct(t.tRate, 1)) + '</b></td>'
+    + '<td class="num" style="color:' + relCol(t.rel) + '">' + relTxt(t.rel) + '</td>'
+    + '<td class="num">' + fmt.money(t.net) + '</td>'
     + '<td class="num">' + fmt.pct(t.rrate) + '</td><td class="num">' + fmt.dec1(t.durH) + '</td>'
     + '<td class="num">' + fmt.yuan(t.hvGmv) + '</td><td class="num">' + fmt.yuan(t.hvNet) + '</td>'
     + '<td class="num">' + fmt.int(t.hUv) + '</td><td class="num">' + fmt.pct(t.conv, 2) + '</td>'
@@ -668,19 +848,27 @@ function renderCombo() {
     const [an, sh] = k.split('||');
     const r = calc.rollup(arr);
     r.an = an; r.sh = sh;
+    const g = goalAgg(arr);
+    r.tar = g.tar; r.tRate = g.rate; r.gMiss = g.miss; r.gMissAct = g.missAct; r.gmvCov = g.act;
     list.push(r);
   });
   list.sort((a, b) => (a.an === b.an ? b.hvGmv - a.hvGmv : a.an.localeCompare(b.an, 'zh')));
 
-  let html = '<thead><tr><th>主播</th><th>班次</th><th>场次</th><th>成交金额</th><th>净销售</th><th>退款率</th>'
-    + '<th>单小时GMV</th><th>时均UV</th><th>转化率</th><th>客单价</th><th>样本</th></tr></thead><tbody>';
-  if (!list.length) html += '<tr><td colspan="11" style="text-align:center;color:#8b867d;padding:30px">所选区间内暂无主播场次</td></tr>';
+  let html = '<thead><tr><th>主播</th><th>班次</th><th>场次</th><th>成交金额</th><th>承接目标</th><th>达成</th>'
+    + '<th>净销售</th><th>退款率</th><th>单小时GMV</th><th>时均UV</th><th>转化率</th><th>客单价</th><th>样本</th></tr></thead><tbody>';
+  if (!list.length) html += '<tr><td colspan="13" style="text-align:center;color:#8b867d;padding:30px">所选区间内暂无主播场次</td></tr>';
   list.forEach(r => {
     html += '<tr>'
       + '<td>' + r.an + '</td>'
       + '<td><span class="tag" style="border-color:transparent;background:' + SC[r.sh] + '1f;color:' + SC[r.sh] + '">' + r.sh + '</span></td>'
       + '<td class="num">' + r.n + '</td>'
       + '<td class="num">' + fmt.money(r.gmv) + '</td>'
+      + '<td class="num" style="color:#8b867d">' + (r.tar ? fmt.money(r.tar) : '—') + '</td>'
+      + '<td class="num"><b style="color:' + rateColor(r.tRate) + '" title="'
+      + (r.tRate === null ? '本组合无对应目标'
+        : '同口径成交 ' + fmt.yuan(r.gmvCov) + ' ÷ 目标 ' + fmt.yuan(r.tar)
+          + (r.gMiss ? '　（另 ' + r.gMiss + ' 场无目标，' + fmt.yuan(r.gMissAct) + ' 成交未计入）' : ''))
+      + '">' + (r.tRate === null ? '—' : fmt.pct(r.tRate, 1)) + '</b></td>'
       + '<td class="num">' + fmt.money(r.net) + '</td>'
       + '<td class="num">' + fmt.pct(r.rrate) + '</td>'
       + '<td class="num"><b>' + fmt.yuan(r.hvGmv) + '</b></td>'
@@ -716,13 +904,45 @@ function renderInsight() {
   if (rr) {
     li.push('退款率最高的是 <b>' + rr.an + '</b>（<b>' + fmt.pct(rr.rrate) + '</b>），需核对其常推商品是否存在尺码或预期不符问题。');
   }
+
+  /* ---- 目标达成：先说清结构，再点名谁跑赢了同班次 ---- */
+  const gr = rows.filter(r => r.tRate !== null && r.n >= 5);
+  if (gr.length >= 2) {
+    const ok = gr.slice().sort((a, b) => b.tRate - a.tRate);
+    const hi = ok[0], lo = ok[ok.length - 1];
+    li.push('目标达成率最高的是 <b>' + hi.an + '</b>（<b>' + fmt.pct(hi.tRate, 1) + '</b>，承接目标 '
+      + fmt.money(hi.tar) + '元），最低是 ' + lo.an + '（' + fmt.pct(lo.tRate, 1) + '，承接目标 '
+      + fmt.money(lo.tar) + '元）。');
+  }
+  const gE = goalAgg(A().filter(s => s.sh === '早'));
+  const gL = goalAgg(A().filter(s => s.sh === '晚'));
+  if (gE.tar && gL.tar && gE.hit && gL.hit) {
+    const perE = gE.tar / gE.hit, perL = gL.tar / gL.hit;
+    li.push('目标在班次间不是均分的：晚班单场承接 <b>' + fmt.money(perL) + '</b>元，是早班（'
+      + fmt.money(perE) + '元）的 <b>' + (perL / perE).toFixed(1) + ' 倍</b>，而晚班整体达成只有 <b>'
+      + fmt.pct(gL.rate, 1) + '</b>（早班 ' + fmt.pct(gE.rate, 1) + '）。所以达成率高低有相当一部分来自'
+      + '「被排在哪个班」，不完全等于个人产出——跨班次比较请看明细视图的「同班次」列。');
+  }
+  const rel = rows.filter(r => r.rel !== null && r.n >= 5 && r.rel > 1.03)
+    .sort((a, b) => b.rel - a.rel);
+  if (rel.length) {
+    li.push('剥离班次结构后跑赢同班次基准的是 ' + rel.slice(0, 3).map(r =>
+      '<b>' + r.an + '</b>（+' + ((r.rel - 1) * 100).toFixed(0) + '%）').join('、')
+      + '；这是比绝对达成率更可比的个人表现口径。');
+  }
+  const missTot = goalAgg(A()).miss;
+  if (missTot) {
+    li.push('另有 <b>' + missTot + '</b> 场当天的班次目标为 0（源表把目标挂到了别的班次），'
+      + '这些场次不参与达成率计算，避免出现「除以 0」或虚高的假象。');
+  }
   if (rows.length) {
     li.push('样本提示：本区间 ' + A().length + ' 场由 ' + rows.length + ' 人分担，人均约 <b>'
       + (A().length / rows.length).toFixed(0) + ' 场</b>。场次少于 8 场的主播受随机波动影响大，不建议直接据此做绩效结论。');
   }
   document.getElementById('insight').innerHTML =
     '<h3>主播结论</h3><ol>' + li.map(x => '<li>' + x + '</li>').join('') + '</ol>'
-    + '<div class="src">主播归属来自排班表；数字人班次无主播；跨班次比较已完成时长归一。</div>';
+    + '<div class="src">主播归属来自排班表；数字人班次无主播；跨班次比较已完成时长归一。'
+    + '目标按「日 × 班次」整笔归给该场主播，与班次页的班次达成率同源。</div>';
 }
 
 onResize(() => { renderScatter(); });
