@@ -116,16 +116,17 @@
 .chip .cn { margin-left: 5px; font-size: 9.5px; opacity: .62; font-variant-numeric: tabular-nums; }
 .chip.an.allbtn { margin-right: 6px; }
 .chip.an.allbtn:not(.on) { opacity: .85; border-style: dashed; }
-.chip.ty { border: 1px solid var(--line); background: #fff; }
+.chip.ty { border: 1px solid var(--line); background: #fff; color: var(--ink-2); }
+.chip.ty.allbtn { border-style: dashed; }
+.chip.ty.allbtn:not(.on) { color: var(--ink-3); }
+.chip.ty:not(.allbtn):not(.on):hover { border-color: var(--gold-l); color: var(--ink); }
+.chip.ty.more { color: var(--ink-3); border-style: dotted; background: transparent; }
+.chip.ty.more:hover { color: var(--ink); border-color: var(--gold-l); }
+/* 选中态必须放在所有普通态之后：同权重下后者胜出，否则会被压成深字压深底 */
 .chip.ty.on { background: var(--ink); border-color: var(--ink); color: #fff; }
 .chip.ty:disabled { opacity: .35; cursor: not-allowed; }
 .chip.ty:disabled:hover { background: #fff; color: var(--ink-2); }
 .chip.ty.on:disabled { background: var(--ink); color: #fff; }
-.chip.ty.allbtn { border-style: dashed; }
-.chip.ty:not(.allbtn) { color: var(--ink-2); }
-.chip.ty:not(.allbtn):hover { border-color: var(--gold-l); color: var(--ink); }
-.chip.ty.more { color: var(--ink-3); border-style: dotted; background: transparent; }
-.chip.ty.more:hover { color: var(--ink); border-color: var(--gold-l); }
 #tyChips { max-width: 100%; }
 
 @media (max-width: 1080px) {
