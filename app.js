@@ -131,6 +131,7 @@ async function loadData() {
   D.meta = j.meta;
   D.anchors = j.anchors;
   D.sessions = j.sessions;
+  D.targets = j.targets || {};
   D.shopAll = j.shopDaily;
   D.shopMap = new Map(j.shopDaily.map(x => [x.d, x]));
 
@@ -152,6 +153,83 @@ async function loadData() {
     s.aov = calc.rate(s.gmv, s.bp);
   }
   return D;
+}
+
+/* ============================================================
+   销售目标（源表「天猫排班及目标表」H~K 列，按 日 × 班次 拆分）
+   注意：没目标的日子表里没有这条记录，不能拿 0 兜底——
+   0 会算出「达成率 ∞」或「有目标但达成 0%」，两种都是错的。
+   ============================================================ */
+const tgt = {
+  /* 只认「数据截止日之前」的目标：表里还有 11-03 ~ 11-30 的计划目标，
+     但没有对应实际数据，混进来会把周/月达成率压成假的低值 */
+  known(d) { return d <= D.meta.dateTo; },
+  at(d, sh) {
+    const a = D.targets[d];
+    if (!a) return null;
+    return a[SHIFTS.indexOf(sh)] || 0;
+  },
+  dayTotal(d) {
+    const a = D.targets[d];
+    return a ? a.reduce((x, y) => x + y, 0) : null;
+  },
+  days(from, to) {
+    return Object.keys(D.targets).filter(d => d >= from && d <= to && tgt.known(d)).sort();
+  },
+  sum(from, to, sh) {
+    const i = sh ? SHIFTS.indexOf(sh) : -1;
+    let s = 0, n = 0;
+    for (const d of tgt.days(from, to)) {
+      const a = D.targets[d];
+      if (!a) continue;
+      s += i >= 0 ? (a[i] || 0) : a.reduce((x, y) => x + y, 0);
+      n++;
+    }
+    return { sum: s, days: n };
+  },
+  rate(act, tar) { return (tar && tar > 0) ? act / tar : null; },
+  /* 按当前粒度（日/周/月）汇总目标，供总览明细直接查 */
+  byBucket(grain) {
+    const m = new Map();
+    for (const d of Object.keys(D.targets)) {
+      if (!tgt.known(d)) continue;
+      const k = grain === 'day' ? d : grain === 'week' ? dU.weekStart(d) : dU.yearMonth(d);
+      m.set(k, (m.get(k) || 0) + (tgt.dayTotal(d) || 0));
+    }
+    return m;
+  },
+  /* 同粒度下的实际成交，但只算「有目标的日子」——分子分母必须同口径，
+     否则拿整周/整月的成交去比只有几天的目标，达成率会被高估 */
+  actualByBucket(grain, sessions) {
+    const m = new Map();
+    for (const s of (sessions || [])) {
+      if (!D.targets[s.d]) continue;
+      const k = grain === 'day' ? s.d : grain === 'week' ? dU.weekStart(s.d) : dU.yearMonth(s.d);
+      m.set(k, (m.get(k) || 0) + (s.gmv || 0));
+    }
+    return m;
+  },
+};
+
+/* 达成率配色：一律浅底深字，避免深底深字看不清 */
+function goalColor(r) {
+  if (r === null) return '#8b867d';
+  if (r >= 1) return '#9a7a2a';
+  if (r >= .85) return '#3a5778';
+  if (r >= .7) return '#6f6a61';
+  return '#b3352c';
+}
+function goalBg(r) {
+  if (r === null) return '';
+  if (r >= 1.2) return 'rgba(201,169,98,.36)';
+  if (r >= 1) return 'rgba(201,169,98,.22)';
+  if (r >= .85) return 'rgba(58,87,120,.09)';
+  if (r >= .7) return 'rgba(23,22,26,.04)';
+  return 'rgba(179,53,44,.085)';
+}
+function goalPill(r, txt) {
+  return '<span class="rpill" style="background:' + goalBg(r) + ';color:' + goalColor(r) + '">'
+    + (txt !== undefined ? txt : (r === null ? '—' : fmt.pct(r, 1))) + '</span>';
 }
 
 /* ============================================================

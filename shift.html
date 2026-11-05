@@ -12,6 +12,21 @@
 .sc .kpi-v { font-size: 22px; }
 .sc .spk { margin-top: 10px; }
 .sc .sc-ft { font-size: 10.5px; color: var(--ink-3); margin-top: 6px; line-height: 1.6; }
+.sc-goal {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  margin-top: 9px; padding-top: 7px; border-top: 1px dashed var(--line);
+  font-size: 10.5px; color: var(--ink-3);
+}
+.sc-goal b { font-size: 12px; font-variant-numeric: tabular-nums; }
+.goal-track { height: 3px; background: #efece4; border-radius: 2px; margin-top: 5px; overflow: hidden; }
+.goal-track i { display: block; height: 100%; border-radius: 2px; }
+#goalTable { table-layout: fixed; min-width: 620px; }
+#goalTable thead th:first-child, #goalTable tbody td:first-child { width: 112px; }
+#goalTable th, #goalTable td { white-space: nowrap; }
+#goalTable td.gc, #goalTable th.gc { text-align: center; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+#goalTable th.gc .dot { margin-right: 4px; vertical-align: middle; }
+#goalTable td.gd { color: var(--ink-4); font-size: 11px; }
+#goalTable .gsub { display: block; font-size: 9.5px; opacity: .72; margin-top: 1px; }
 </style>
 </head>
 <body>
@@ -61,6 +76,26 @@
 
   <section class="sec">
     <div class="sec-h">
+      <span class="idx">03</span><h2>销售目标达成</h2><em id="goalSub"></em>
+      <div class="right" id="goalRight"></div>
+    </div>
+    <div class="card">
+      <div class="card-hd"><h3>累计目标 vs 累计实际</h3><span>只统计「有目标 ＆ 已发生」的日期</span>
+        <div class="r" id="goalChartRight"></div></div>
+      <div id="goalChart" class="chart-wrap"></div>
+      <div class="legend card-ft" id="goalLegend"></div>
+    </div>
+    <div class="card flush" style="margin-top:14px">
+      <div class="tbl-wrap scroll"><table id="goalTable"></table></div>
+      <div class="note card-ft" id="goalNote" style="padding:8px 16px 12px">
+        格内为当日该班次达成率（成交金额 ÷ 目标），悬停可看实际值与目标值；达成率 ≥100% 为金、85~100% 为蓝、70~85% 为灰、&lt;70% 为红。
+        目标表覆盖 <b>2026-10-01 ~ 2026-11-30</b>，其中 11-03 之后只有计划、没有实际，不计入统计。
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-h">
       <span class="idx">04</span><h2>班次明细</h2><em id="tblSub"></em>
       <div class="right">对比列为本区间 vs 上一等长区间</div>
     </div>
@@ -97,6 +132,7 @@
 function renderAll() {
   renderCards();
   renderTrends();
+  renderGoal();
   renderScatter();
   renderHeat();
   renderTable();
@@ -104,6 +140,15 @@ function renderAll() {
 }
 
 const shiftGroups = () => calc.group(F.sessions, s => s.sh);
+
+/* 目标日内的实际成交：达成率分子必须与分母（目标天数）同口径，
+   区间里 10-01 之前的日子没有目标，不能算进分子 */
+function goalDays() { return tgt.days(F.from, F.to); }
+function goalActual(sh) {
+  const ds = new Set(goalDays());
+  return F.sessions.filter(s => ds.has(s.d) && (!sh || s.sh === sh))
+    .reduce((t, s) => t + (s.gmv || 0), 0);
+}
 
 /* ---------------- 01 ---------------- */
 function renderCards() {
@@ -117,6 +162,8 @@ function renderCards() {
     const prev = F.prevSessions.filter(x => x.sh === s);
     const p = calc.rollup(prev);
     const [n, u] = fmt.mpart(r.hvGmv);
+    const T = tgt.sum(F.from, F.to, s);
+    const rate = tgt.rate(goalActual(s), T.sum);
     return '<div class="card sc" style="border-top:2px solid ' + SC[s] + '">'
       + '<div class="card-hd"><h3><span class="dot" style="background:' + SC[s] + '"></span>' + s + '</h3>'
       + '<span>' + fmt.pct(r.gmv / total, 0) + ' 占比</span>'
@@ -125,6 +172,10 @@ function renderCards() {
       + '<div class="kpi-s">' + r.n + ' 场 · 场均 ' + fmt.money(r.perSess) + '元</div>'
       + '<div class="sc-ft">平均 ' + fmt.dec1(r.durPer) + ' h/场 · 时均 UV ' + fmt.int(r.hUv) + '<br>'
       + '转化 ' + fmt.pct(r.conv, 2) + ' · 退款率 ' + fmt.pct(r.rrate) + ' · 客单 ' + fmt.yuan(r.aov) + '</div>'
+      + (rate === null ? ''
+        : '<div class="sc-goal"><span>目标 ' + fmt.money(T.sum) + '元 · ' + T.days + ' 天</span>'
+        + '<b style="color:' + goalColor(rate) + '">达成 ' + fmt.pct(rate, 1) + '</b></div>'
+        + '<div class="goal-track"><i style="width:' + Math.min(rate * 100, 100).toFixed(1) + '%;background:' + goalColor(rate) + '"></i></div>')
       + '</div>';
   }).join('');
 }
@@ -246,6 +297,116 @@ function renderHeat() {
     + '<span style="margin-left:8px">低 → 高（单小时 GMV，元）</span>';
 }
 
+/* ---------------- 03 目标达成 ---------------- */
+function renderGoal() {
+  const host = document.getElementById('goalChart');
+  const tbl = document.getElementById('goalTable');
+
+  /* 当日 × 班次实际成交 */
+  const byDay = new Map();
+  for (const s of F.sessions) {
+    if (!byDay.has(s.d)) byDay.set(s.d, {});
+    const o = byDay.get(s.d);
+    o[s.sh] = (o[s.sh] || 0) + (s.gmv || 0);
+  }
+  const days = tgt.days(F.from, F.to).filter(d => byDay.has(d));
+  document.getElementById('goalSub').textContent = F.from + ' ~ ' + F.to;
+
+  if (!days.length) {
+    const msg = '<div class="empty">本区间没有销售目标数据。目标表只覆盖 <b>'
+      + D.meta.targetFrom + ' ~ ' + D.meta.targetTo + '</b>，更早的日期没有目标，页面不虚构。</div>';
+    host.innerHTML = msg;
+    tbl.innerHTML = '';
+    document.getElementById('goalRight').textContent = '';
+    document.getElementById('goalChartRight').textContent = '';
+    document.getElementById('goalLegend').innerHTML = '';
+    return;
+  }
+
+  /* 累计目标 / 累计实际 */
+  let cT = 0, cA = 0;
+  const cumT = [], cumA = [];
+  days.forEach(d => {
+    cT += tgt.dayTotal(d) || 0;
+    const o = byDay.get(d);
+    cA += SHIFTS.reduce((t, sh) => t + (o[sh] || 0), 0);
+    cumT.push(cT); cumA.push(cA);
+  });
+  const totalT = cT, totalA = cA;
+  const totalR = tgt.rate(totalA, totalT);
+
+  document.getElementById('goalRight').innerHTML =
+    '<b>' + days.length + '</b> 天有目标　·　目标 <b>' + fmt.money(totalT) + '元</b> / 实际 <b>'
+    + fmt.money(totalA) + '元</b>　·　达成 <b style="color:' + goalColor(totalR) + '">'
+    + (totalR === null ? '—' : fmt.pct(totalR, 1)) + '</b>';
+  document.getElementById('goalChartRight').textContent = '右端＝区间累计';
+
+  lineChart(host, {
+    height: 240,
+    labels: days.map(d => fmt.md(d)),
+    series: [
+      { name: '累计目标', color: '#b3aea3', data: cumT, width: 1.8 },
+      { name: '累计实际', color: GOLD, data: cumA, width: 2, area: true },
+    ],
+    yFmt: v => fmt.money(v),
+    yMin0: true,
+    maxXLabels: 8,
+    ticks: 4,
+    tipTitle: (lb, i) => days[i] + '　达成 '
+      + (cumT[i] ? fmt.pct(cumA[i] / cumT[i], 1) : '—'),
+  });
+  document.getElementById('goalLegend').innerHTML =
+    '<span><i style="background:#b3aea3"></i>累计目标</span>'
+    + '<span><i style="background:' + GOLD + '"></i>累计实际</span>'
+    + '<span style="color:#b3aea3">两线差距＝累计缺口；线在上方即超额</span>';
+
+  /* 分日明细 */
+  let html = '<thead><tr><th>日期</th>'
+    + SHIFTS.map(s => '<th class="gc"><span class="dot" style="background:' + SC[s] + '"></span>'
+      + s + '</th>').join('')
+    + '<th class="gc">当日合计</th></tr></thead><tbody>';
+
+  days.slice().reverse().forEach(d => {
+    const o = byDay.get(d);
+    const dt = tgt.dayTotal(d) || 0;
+    const da = SHIFTS.reduce((t, sh) => t + (o[sh] || 0), 0);
+    const dr = tgt.rate(da, dt);
+    html += '<tr><td>' + d + '</td>';
+    SHIFTS.forEach(sh => {
+      const t = tgt.at(d, sh);
+      const a = o[sh] || 0;
+      const r = tgt.rate(a, t);
+      html += r === null
+        ? '<td class="gc gd">无目标</td>'
+        : '<td class="gc" title="' + d + ' ' + sh + '：实际 ' + fmt.yuan(a) + ' / 目标 ' + fmt.yuan(t) + '">'
+          + '<span class="rpill" style="background:' + goalBg(r) + ';color:' + goalColor(r) + '">'
+          + fmt.pct(r, 1) + '</span><span class="gsub">' + fmt.money(t) + '</span></td>';
+    });
+    html += '<td class="gc" style="font-weight:600" title="'
+      + d + '：实际 ' + fmt.yuan(da) + ' / 目标 ' + fmt.yuan(dt) + '">'
+      + '<span class="rpill" style="background:' + goalBg(dr) + ';color:' + goalColor(dr) + '">'
+      + (dr === null ? '—' : fmt.pct(dr, 1)) + '</span><span class="gsub">' + fmt.money(dt) + '</span></td></tr>';
+  });
+
+  /* 合计行 */
+  html += '</tbody><tfoot><tr><td>合计</td>';
+  SHIFTS.forEach(sh => {
+    const T = tgt.sum(F.from, F.to, sh);
+    const A = goalActual(sh);
+    const r = tgt.rate(A, T.sum);
+    html += '<td class="gc">'
+      + '<span class="rpill" style="background:' + goalBg(r) + ';color:' + goalColor(r) + '">'
+      + (r === null ? '—' : fmt.pct(r, 1)) + '</span>'
+      + '<span class="gsub">' + fmt.money(A) + ' / ' + fmt.money(T.sum) + '</span></td>';
+  });
+  html += '<td class="gc">'
+    + '<span class="rpill" style="background:' + goalBg(totalR) + ';color:' + goalColor(totalR) + '">'
+    + (totalR === null ? '—' : fmt.pct(totalR, 1)) + '</span>'
+    + '<span class="gsub">' + fmt.money(totalA) + ' / ' + fmt.money(totalT) + '</span></td></tr></tfoot>';
+
+  tbl.innerHTML = html;
+}
+
 /* ---------------- 04 明细 ---------------- */
 function renderTable() {
   const cur = shiftGroups();
@@ -299,6 +460,21 @@ function renderInsight() {
   SHIFTS.forEach(s => { if (cur.has(s)) r[s] = calc.rollup(cur.get(s)); });
   const li = [];
   const human = SHIFTS.filter(s => s !== '数字人' && r[s]);
+
+  /* 目标达成先讲，这是老板最先问的数 */
+  const T = tgt.sum(F.from, F.to);
+  if (T.sum > 0) {
+    const A = goalActual();
+    const rt = tgt.rate(A, T.sum);
+    const rr = SHIFTS.map(s => ({ s, r: tgt.rate(goalActual(s), tgt.sum(F.from, F.to, s).sum) }))
+      .filter(x => x.r !== null).sort((a, b) => b.r - a.r);
+    li.push('目标期内（<b>' + T.days + ' 天</b>）目标 <b>' + fmt.money(T.sum) + '元</b>，实际 <b>'
+      + fmt.money(A) + '元</b>，整体达成 <b style="color:' + goalColor(rt) + '">' + fmt.pct(rt, 1) + '</b>'
+      + (rr.length > 1
+        ? '；<b>' + rr[0].s + '</b> 最高（' + fmt.pct(rr[0].r, 1) + '），<b>' + rr[rr.length - 1].s
+        + '</b> 最低（' + fmt.pct(rr[rr.length - 1].r, 1) + '）。'
+        : '。'));
+  }
 
   if (human.length > 1) {
     const best = human.slice().sort((a, b) => r[b].hvGmv - r[a].hvGmv)[0];

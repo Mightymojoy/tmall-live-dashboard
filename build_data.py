@@ -72,6 +72,32 @@ def clean_rhythm(v):
     return s or RHYTHM_EMPTY
 
 
+def load_targets(path):
+    """「天猫排班及目标表」-> {date: [数字人, 早, 中, 晚]}（单位：元）
+
+    表头两行：第 1 行只有 H 列写「目标」，第 2 行为 数字人 / 早 / 中 / 晚。
+    列位：B 日期、C~E 排班主播、H 数字人目标、I 早目标、J 中目标、K 晚目标。
+    目标只覆盖 2026-10-01 起的新排期，更早的日期没有目标，前端按「无目标」处理，
+    不能把 0 当成目标 0 去算达成率。
+    """
+    wb = openpyxl.load_workbook(path, data_only=True)
+    if '天猫排班及目标表' not in wb.sheetnames:
+        return {}
+    ws = wb['天猫排班及目标表']
+    out = {}
+    for r in ws.iter_rows(min_row=3, values_only=True):
+        if r[1] is None:
+            continue
+        d = dstr(r[1])
+        if len(d) != 10 or not d[:4].isdigit():
+            continue
+        vals = [f(r[7]), f(r[8]), f(r[9]), f(r[10])]
+        if all(v is None for v in vals):
+            continue
+        out[d] = [r0(v) or 0.0 for v in vals]
+    return out
+
+
 def load_rhythm(path):
     """「天猫活动节奏」-> {date: (节奏名, 类型, 直播间机制)}"""
     wb = openpyxl.load_workbook(path, data_only=True)
@@ -160,6 +186,7 @@ def main():
     sched = load_schedule(args.sch)
     sched_days = sorted({k[0] for k in sched})
     rhythm = load_rhythm(args.src)
+    targets = load_targets(args.src)
 
     # ---------- 场次主表 ----------
     rows = list(wb['直播单场数据源'].iter_rows(min_row=2, values_only=True))
@@ -303,6 +330,16 @@ def main():
     rhythm_counts = Counter(s['rn'] for s in sessions)
     rhythm_list = [k for k, _ in rhythm_counts.most_common()]
 
+    # 目标：只统计「既有目标、又有实际场次」的日子，避免拿空白天凑达成率
+    tgt_days = sorted(targets)
+    day_gmv = {}
+    for s in sessions:
+        day_gmv[s['d']] = day_gmv.get(s['d'], 0.0) + (s['gmv'] or 0.0)
+    tgt_cover = [d for d in tgt_days if d in day_gmv]
+    tgt_sum = sum(sum(targets[d]) for d in tgt_days)
+    tgt_cover_sum = sum(sum(targets[d]) for d in tgt_cover)
+    tgt_cover_act = sum(day_gmv[d] for d in tgt_cover)
+
     meta = {
         'generated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'src': os.path.basename(args.src),
@@ -329,6 +366,15 @@ def main():
         'rhythmMiss': miss_rhythm,
         'rhythmMechDays': sum(1 for s in sessions if s['mg']),
         'typeCounts': dict(Counter(s['rt'] for s in sessions)),
+        'shifts': ['数字人', '早', '中', '晚'],
+        'targetFrom': tgt_days[0] if tgt_days else '',
+        'targetTo': tgt_days[-1] if tgt_days else '',
+        'targetDays': len(tgt_days),
+        'targetCoverDays': len(tgt_cover),
+        'targetSum': round(tgt_sum, 1),
+        'targetCoverSum': round(tgt_cover_sum, 1),
+        'targetCoverAct': round(tgt_cover_act, 1),
+        'targetNote': '分日销售目标，按 数字人/早/中/晚 四班次拆分（源表「天猫排班及目标表」H~K 列）',
     }
 
     out = {
@@ -338,6 +384,7 @@ def main():
         'shopDaily': shop_daily,
         'goodsMeta': goods_meta,
         'gd': gd,
+        'targets': targets,
     }
     with open(args.out, 'w', encoding='utf-8') as fp:
         json.dump(out, fp, ensure_ascii=False, separators=(',', ':'))
@@ -362,6 +409,11 @@ def main():
     print('  活动/日销     :', meta['typeCounts'])
     print('  场次最多      :', '、'.join(f'{k}{v}' for k, v in rhythm_counts.most_common(8)))
     print('  有机制日期场次:', meta['rhythmMechDays'])
+    print('销售目标        :', meta['targetDays'], '天', f"({meta['targetFrom']} ~ {meta['targetTo']})",
+          '合计', f"{meta['targetSum']:,.0f}", '元')
+    print('  有实际的天数  :', meta['targetCoverDays'], '天，目标', f"{meta['targetCoverSum']:,.0f}",
+          '/ 实际', f"{meta['targetCoverAct']:,.0f}",
+          f"（达成 {meta['targetCoverAct'] / meta['targetCoverSum'] * 100:.1f}%）" if meta['targetCoverSum'] else '')
     print('输出            :', args.out, f'{size:.0f} KB')
     print('=' * 54)
 

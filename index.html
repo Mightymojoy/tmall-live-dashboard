@@ -64,7 +64,7 @@
   <section class="sec">
     <div class="sec-h">
       <span class="idx">04</span><h2>区间明细</h2><em id="detailSub"></em>
-      <div class="right">最右列为成交金额环比上一行</div>
+      <div class="right">目标达成＝目标期内实际 ÷ 目标（目标表自 2026-10-01 起）· 最右列为成交环比</div>
     </div>
     <div class="card flush"><div class="tbl-wrap scroll"><table id="detailTable"></table></div></div>
   </section>
@@ -213,17 +213,26 @@ function renderDetail() {
   const gname = { day: '日期', week: '周起始', month: '月份' }[grain];
   document.getElementById('detailSub').textContent = { day: '按日', week: '按周', month: '按月' }[grain] + ' · 共 ' + rows.length + ' 行';
 
-  let html = '<thead><tr><th>' + gname + '</th><th>场次</th><th>成交金额</th><th>退款金额</th><th>净销售</th>'
+  let html = '<thead><tr><th>' + gname + '</th><th>场次</th><th>成交金额</th><th>目标达成</th><th>退款金额</th><th>净销售</th>'
     + '<th>退款率</th><th>单小时GMV</th><th>时均UV</th><th>转化率</th><th>客单价</th><th>成交环比</th></tr></thead><tbody>';
 
+  const tBucket = tgt.byBucket(grain);
+  const aBucket = tgt.actualByBucket(grain, F.sessions);
   rows.forEach((r, i) => {
     const prev = rows[i + 1];
     const d = prev ? deltaHtml(r.gmv, prev.gmv) : '<span class="delta flat">—</span>';
     const partial = r.days < (grain === 'month' ? 15 : grain === 'week' ? 5 : 1) && i === 0;
+    const T = tBucket.get(r.k) || 0;
+    const A = aBucket.get(r.k) || 0;
+    const rate = tgt.rate(A, T);
     html += '<tr>'
       + '<td>' + r.k + (partial ? ' <span class="tag mute">不完整</span>' : '') + '</td>'
       + '<td class="num">' + r.n + '</td>'
       + '<td class="num">' + fmt.money(r.gmv) + '</td>'
+      + '<td class="num">' + (rate === null ? '<span style="color:#b3aea3">无目标</span>'
+        : '<span title="目标期内实际 ' + fmt.yuan(A) + ' / 目标 ' + fmt.yuan(T) + '">'
+        + goalPill(rate) + '</span><span style="font-size:9.5px;color:#a8a29a;margin-left:4px">'
+        + fmt.money(T) + '</span>') + '</td>'
       + '<td class="num" style="color:#8b867d">' + fmt.money(r.rf) + '</td>'
       + '<td class="num"><b>' + fmt.money(r.net) + '</b></td>'
       + '<td class="num">' + fmt.pct(r.rrate) + '</td>'
@@ -236,9 +245,16 @@ function renderDetail() {
   });
 
   const t = F.roll;
+  const tSum = tgt.sum(F.from, F.to).sum;
+  const tAct = F.sessions.filter(s => D.targets[s.d]).reduce((a, s) => a + (s.gmv || 0), 0);
+  const tRate = tgt.rate(tAct, tSum);
   html += '</tbody><tfoot><tr>'
     + '<td>区间合计</td><td class="num">' + t.n + '</td>'
     + '<td class="num">' + fmt.money(t.gmv) + '</td>'
+    + '<td class="num">' + (tRate === null ? '—'
+      : '<span title="目标期内实际 ' + fmt.yuan(tAct) + ' / 目标 ' + fmt.yuan(tSum) + '">'
+      + goalPill(tRate) + '</span><span style="font-size:9.5px;color:#a8a29a;margin-left:4px">'
+      + fmt.money(tSum) + '</span>') + '</td>'
     + '<td class="num">' + fmt.money(t.rf) + '</td>'
     + '<td class="num">' + fmt.money(t.net) + '</td>'
     + '<td class="num">' + fmt.pct(t.rrate) + '</td>'
