@@ -90,6 +90,8 @@
       <div class="note card-ft" id="goalNote" style="padding:8px 16px 12px">
         格内为当日该班次达成率（成交金额 ÷ 目标），悬停可看实际值与目标值；达成率 ≥100% 为金、85~100% 为蓝、70~85% 为灰、&lt;70% 为红。
         目标表覆盖 <b>2026-10-01 ~ 2026-11-30</b>，其中 11-03 之后只有计划、没有实际，不计入统计。
+        <br>2026-10-20 中班与晚班为连播，场次表只有一条中班记录（621 分钟），成交 133.8 万按 50:50
+        拆给中班与晚班（各 66.9 万）；目标不拆，晚班 166.4 万仍记在晚班。
       </div>
     </div>
   </section>
@@ -377,7 +379,8 @@ function renderGoal() {
       const a = o[sh] || 0;
       const r = tgt.rate(a, t);
       html += r === null
-        ? '<td class="gc gd">无目标</td>'
+        ? '<td class="gc gd" title="' + d + ' ' + sh + '：当日该班次无目标' + (a ? '，实际成交 ' + fmt.yuan(a) : '')
+          + '">无目标' + (a ? '<span class="gsub">' + fmt.money(a) + '</span>' : '') + '</td>'
         : '<td class="gc" title="' + d + ' ' + sh + '：实际 ' + fmt.yuan(a) + ' / 目标 ' + fmt.yuan(t) + '">'
           + '<span class="rpill" style="background:' + goalBg(r) + ';color:' + goalColor(r) + '">'
           + fmt.pct(r, 1) + '</span><span class="gsub">' + fmt.money(t) + '</span></td>';

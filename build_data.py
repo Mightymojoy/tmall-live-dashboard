@@ -30,6 +30,26 @@ DEF_SCH = r'C:\Users\QwQ\Desktop\10-11月天猫排班表.xlsx'
 ONLY_REFUND_SCENES = ('未发货仅退款', '已收到货仅退款', '在途仅退款')
 
 # ---------------------------------------------------------------
+# 连播场次拆分（老大 2026-11-05 确认）
+#
+# 2026-10-20 双11 预售夜由「中班 陈思颖」与「晚班 赵亚男」连播，但场次表只留了
+# 一条「中班 621 分钟」的记录，133.8 万全记在陈思颖名下、赵亚男当天 0 场次。
+# 排班与目标表是清楚的：早=一丹 / 中=陈思颖 / 晚=赵亚男，晚班目标 166.4 万。
+#
+# 处理：把这一场按权重拆成两条，成交/退款/时长/观看等「体量类」字段按权重分，
+# 比率类指标（转化率、时均 UV、单小时 GMV 等）由前端用拆分后的分子分母重算，
+# 因此比率不变。目标不拆——166.4 万仍属晚班，拆出来的晚班那条去承接它。
+#
+# 权重取对半：两名主播标准班次时长为 265 / 271 分钟，按时长权重是 49.4 : 50.6，
+# 与对半的差额不到 1 万元，用对半更好解释。要改口径只改这张表，重跑即生效。
+# ---------------------------------------------------------------
+SPLIT_RULES = {
+    ('2026-10-20', '中'): [('中', '陈思颖', 0.5), ('晚', '赵亚男', 0.5)],
+}
+# 按权重拆分的体量字段（其余字段原样带到每一条上）
+SPLIT_VOL = ('gmv', 'rf', 'net', 'dur', 'uv', 'ep', 'cp', 'gcp', 'ac', 'bp', 'fans')
+
+# ---------------------------------------------------------------
 # 场次的活动节奏：改用「天猫活动节奏」官方表（V1 新增）
 # 该表为逐日日历，横排两块：A~D 为 2026 年（日期/节奏/类型/直播间机制），
 # G~I 为 2025 年（日期/节奏/类型）。原按标题关键词猜测的 大促/上新/常规 已废弃。
@@ -160,6 +180,36 @@ def dstr(v):
     return s[:10]
 
 
+def apply_splits(sessions):
+    """把 SPLIT_RULES 里指定的连播场次按权重拆成多条。
+
+    只拆体量字段，比率字段不拆（由前端重算，比率天然不变）。
+    余数补到最后一条，保证拆分前后总量严格相等。
+    """
+    out = []
+    for s in sessions:
+        rule = SPLIT_RULES.get((s['d'], s['sh']))
+        if not rule:
+            out.append(s)
+            continue
+        totals = {k: s.get(k) for k in SPLIT_VOL if s.get(k) is not None}
+        acc = {k: 0.0 for k in totals}
+        for i, (sh, an, w) in enumerate(rule):
+            n = dict(s)
+            n['sh'] = sh
+            n['an'] = an
+            last = (i == len(rule) - 1)
+            for k, tot in totals.items():
+                if last:
+                    n[k] = round(tot - acc[k], 1)
+                else:
+                    n[k] = round(tot * w, 1)
+                    acc[k] += n[k]
+            n['sp'] = '连播·%d人·%.0f%%' % (len(rule), w * 100)
+            out.append(n)
+    return out
+
+
 def load_schedule(path):
     """排班表 -> {(date, shift): anchor}"""
     wb = openpyxl.load_workbook(path, data_only=True)
@@ -240,9 +290,15 @@ def main():
             'gcp': f(r[19]), 'ac': f(r[20]), 'bp': f(r[22]),
             'fans': f(r[14]),
             'flag': flag,
+            'sp': '',          # 连播拆分备注，非空表示该条由连播场次拆分而来
         })
 
     sessions.sort(key=lambda x: (x['d'], x['sh']))
+    raw_count = len(sessions)
+
+    # 连播场次拆分（见文件头 SPLIT_RULES）
+    if SPLIT_RULES:
+        sessions = apply_splits(sessions)
 
     # ---------- 店铺日级 ----------
     shop = {}
@@ -345,6 +401,8 @@ def main():
         'src': os.path.basename(args.src),
         'sch': os.path.basename(args.sch),
         'sessions': len(sessions),
+        'sessionsRaw': raw_count,
+        'splitSessions': len(sessions) - raw_count,
         'dateFrom': sessions[0]['d'] if sessions else '',
         'dateTo': sessions[-1]['d'] if sessions else '',
         'anchorSessions': len(with_anchor),
