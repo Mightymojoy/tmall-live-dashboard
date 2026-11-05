@@ -46,8 +46,15 @@ ONLY_REFUND_SCENES = ('未发货仅退款', '已收到货仅退款', '在途仅�
 SPLIT_RULES = {
     ('2026-10-20', '中'): [('中', '陈思颖', 0.5), ('晚', '赵亚男', 0.5)],
 }
+# 目标同步拆分：成交拆了、目标也必须拆，否则一人有业绩没指标、另一人有指标没业绩。
+# 键 = (日期, 目标原挂班次)，值 = [(班次, 权重)]，权重与 SPLIT_RULES 保持一致。
+TARGET_SPLITS = {
+    ('2026-10-20', '晚'): [('中', 0.5), ('晚', 0.5)],
+}
 # 按权重拆分的体量字段（其余字段原样带到每一条上）
 SPLIT_VOL = ('gmv', 'rf', 'net', 'dur', 'uv', 'ep', 'cp', 'gcp', 'ac', 'bp', 'fans')
+# 目标列顺序，与 load_targets 输出的数组下标一致
+SHIFT_ORDER = ('数字人', '早', '中', '晚')
 
 # ---------------------------------------------------------------
 # 场次的活动节奏：改用「天猫活动节奏」官方表（V1 新增）
@@ -210,6 +217,26 @@ def apply_splits(sessions):
     return out
 
 
+def apply_target_splits(targets):
+    """把 TARGET_SPLITS 指定的班次目标，按权重挪到多个班次上。
+
+    只做「搬迁 + 拆分」，不新增总量：拆分前后当日目标合计严格相等。
+    """
+    for (d, src_sh), parts in TARGET_SPLITS.items():
+        arr = targets.get(d)
+        if not arr or src_sh not in SHIFT_ORDER:
+            continue
+        i = SHIFT_ORDER.index(src_sh)
+        total = arr[i] or 0
+        if not total:
+            continue
+        arr[i] = 0                      # 先清空原班次，再按权重落到各段
+        for sh, w in parts:
+            j = SHIFT_ORDER.index(sh)
+            arr[j] = (arr[j] or 0) + total * w
+    return targets
+
+
 def load_schedule(path):
     """排班表 -> {(date, shift): anchor}"""
     wb = openpyxl.load_workbook(path, data_only=True)
@@ -237,6 +264,7 @@ def main():
     sched_days = sorted({k[0] for k in sched})
     rhythm = load_rhythm(args.src)
     targets = load_targets(args.src)
+    targets = apply_target_splits(targets)
 
     # ---------- 场次主表 ----------
     rows = list(wb['直播单场数据源'].iter_rows(min_row=2, values_only=True))
