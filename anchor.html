@@ -121,6 +121,12 @@
 .chip.ty:disabled { opacity: .35; cursor: not-allowed; }
 .chip.ty:disabled:hover { background: #fff; color: var(--ink-2); }
 .chip.ty.on:disabled { background: var(--ink); color: #fff; }
+.chip.ty.allbtn { border-style: dashed; }
+.chip.ty:not(.allbtn) { color: var(--ink-2); }
+.chip.ty:not(.allbtn):hover { border-color: var(--gold-l); color: var(--ink); }
+.chip.ty.more { color: var(--ink-3); border-style: dotted; background: transparent; }
+.chip.ty.more:hover { color: var(--ink); border-color: var(--gold-l); }
+#tyChips { max-width: 100%; }
 
 @media (max-width: 1080px) {
   .af-hint { margin-left: 0; width: 100%; text-align: left; }
@@ -147,7 +153,7 @@
       <span class="af-hint" id="anHint"></span>
     </div>
     <div class="af-row">
-      <span class="af-lab">场次类型</span>
+      <span class="af-lab">活动场次</span>
       <div class="chips" id="tyChips"></div>
       <span class="af-hint" id="tyHint"></span>
     </div>
@@ -238,25 +244,28 @@ const AC = ['#c9a962', '#3a5778', '#b3352c', '#2c6b4c', '#6a5b8f', '#8a6d2f', '#
     if (b.dataset.an) toggleAn(b.dataset.an);
   });
   document.getElementById('tyChips').addEventListener('click', e => {
-    const b = e.target.closest('button[data-ty]');
+    const b = e.target.closest('button');
     if (!b || b.disabled) return;
-    AF.ty = b.dataset.ty;
-    renderAll();
+    if (b.dataset.all) { AF.rn = null; renderAll(); return; }
+    if (b.dataset.more) { AF.exp = !AF.exp; renderAf(); return; }
+    if (b.dataset.rn) toggleRhythm(b.dataset.rn);
   });
 
   bootShell('90', renderAll);
 })();
 
-/* 主播页筛选状态：an=null 表示全选；ty=all 表示不限场次类型 */
-const AF = { an: null, ty: 'all' };
-const TYPES = ['大促', '上新', '常规'];
+/* 主播页筛选状态：an=null 表示全选；rn=null 表示不限活动场次
+   活动名称来自「天猫活动节奏」官方表（日期 -> 节奏），不再按标题关键词猜 */
+const AF = { an: null, rn: null, exp: false };
+const RN_MAX = 10;   /* 未展开时最多显示的活动数 */
 
 function availAnchors() {
   const m = calc.group(F.sessions.filter(s => s.an), s => s.an);
   return [...m.entries()].sort((a, b) => b[1].length - a[1].length).map(x => x[0]);
 }
+function rnOf(s) { return s.rn || '日销'; }
 function inAF(s) {
-  if (AF.ty !== 'all' && s.pt !== AF.ty) return false;
+  if (AF.rn && !AF.rn.has(rnOf(s))) return false;
   if (AF.an && !AF.an.has(s.an)) return false;
   return true;
 }
@@ -285,25 +294,39 @@ function renderAf() {
         + '<span class="cn">' + byAn.get(n).length + '</span></button>';
     }).join('');
 
+  /* ---- 活动场次：官方节奏名，多选 ---- */
   const cur = F.sessions.filter(s => s.an);
-  const cnt = { '大促': 0, '上新': 0, '常规': 0 };
-  cur.forEach(s => { if (cnt[s.pt] !== undefined) cnt[s.pt]++; });
+  const cnt = {};
+  cur.forEach(s => { const k = rnOf(s); cnt[k] = (cnt[k] || 0) + 1; });
+  const names = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || a.localeCompare(b, 'zh'));
+
+  if (AF.rn) {
+    const keep = new Set([...AF.rn].filter(n => cnt[n]));
+    AF.rn = (keep.size === 0 || keep.size === names.length) ? null : keep;
+  }
+
+  const shown = AF.exp ? names : names.slice(0, RN_MAX);
+  const hidden = names.length - shown.length;
   document.getElementById('tyChips').innerHTML =
-    ['all'].concat(TYPES).map(t => {
-      const n = t === 'all' ? cur.length : cnt[t];
-      return '<button type="button" class="chip ty' + (AF.ty === t ? ' on' : '') + '" data-ty="' + t + '"'
-        + (n === 0 && t !== 'all' ? ' disabled' : '') + '>'
-        + (t === 'all' ? '不限' : t) + '<span class="cn">' + n + '</span></button>';
-    }).join('');
+    '<button type="button" class="chip ty allbtn' + (AF.rn ? '' : ' on') + '" data-all="1">不限</button>'
+    + shown.map(n => {
+      const on = AF.rn ? AF.rn.has(n) : false;
+      return '<button type="button" class="chip ty' + (on ? ' on' : '') + '" data-rn="' + n + '">'
+        + n + '<span class="cn">' + cnt[n] + '</span></button>';
+    }).join('')
+    + (hidden > 0 || AF.exp && names.length > RN_MAX
+      ? '<button type="button" class="chip ty more" data-more="1">'
+        + (AF.exp ? '收起' : '更多 +' + hidden) + '</button>'
+      : '');
 
   document.getElementById('anHint').innerHTML =
     '当前显示 <b>' + A().length + '</b> / ' + cur.length + ' 场'
     + (AF.an ? '　·　已选 <b>' + AF.an.size + '</b> 人' : '　·　全部主播');
 
-  const nonZero = TYPES.filter(t => cnt[t] > 0);
-  document.getElementById('tyHint').innerHTML = nonZero.length <= 1
-    ? '本区间仅有「' + (nonZero[0] || '—') + '」一类场次，类型筛选暂无区分度'
-    : '场次类型取自「场次信息」标题关键词';
+  const act = cur.filter(s => s.rt === '活动').length;
+  document.getElementById('tyHint').innerHTML = names.length <= 1
+    ? '本区间只有「' + (names[0] || '—') + '」一种节奏，筛选暂无区分度'
+    : '节奏名取自「天猫活动节奏」官方表　·　活动 <b>' + act + '</b> 场 / 日销 <b>' + (cur.length - act) + '</b> 场';
 }
 
 function renderAll() {
@@ -335,7 +358,7 @@ function renderWarn() {
   const total = F.roll.n;
   const withA = F.sessions.filter(s => s.an).length;
   const shown = A().length;
-  const anyFilter = !!AF.an || AF.ty !== 'all';
+  const anyFilter = !!AF.an || !!AF.rn;
   document.getElementById('cardSub').textContent = F.from + ' ~ ' + F.to;
   document.getElementById('cardRight').textContent = byAnchor().length + ' 人 · ' + shown + ' 场';
 
@@ -349,7 +372,7 @@ function renderWarn() {
   if (!shown) {
     el.innerHTML = '<span>⚠</span><span>当前筛选下没有可显示的场次。'
       + (AF.an ? '<b>已选主播为 0 人</b>；' : '')
-      + (AF.ty !== 'all' ? '场次类型限定为「' + AF.ty + '」，本区间该类型无主播场次；' : '')
+      + (AF.rn ? '活动场次限定为「' + [...AF.rn].join(' / ') + '」，本区间该节奏无主播场次；' : '')
       + '可点上方「全部 / 不限」还原。</span>';
     el.style.display = 'flex';
     return;
@@ -368,6 +391,17 @@ function toggleAn(name) {
   if (AF.an.has(name)) AF.an.delete(name); else AF.an.add(name);
   /* 点到全空或点回全选，都还原为「全部」——主播页没有主播就没有可看的内容 */
   if (AF.an.size === 0 || AF.an.size === all.length) AF.an = null;
+  renderAll();
+}
+
+/* 活动场次：多选。从「不限」直接点某个活动 = 只看这一个活动（符合直觉）；
+   之后再点其它活动就是加选，点回全部自动回到「不限」 */
+function toggleRhythm(name) {
+  const cur = F.sessions.filter(s => s.an);
+  const names = [...new Set(cur.map(s => rnOf(s)))];
+  if (!AF.rn) { AF.rn = new Set([name]); renderAll(); return; }
+  if (AF.rn.has(name)) AF.rn.delete(name); else AF.rn.add(name);
+  if (AF.rn.size === 0 || AF.rn.size === names.length) AF.rn = null;
   renderAll();
 }
 

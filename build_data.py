@@ -24,32 +24,76 @@ except Exception:
     pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEF_SRC = r'C:\Users\QwQ\Desktop\直播字段.xlsx'
+DEF_SRC = r'C:\Users\QwQ\Desktop\直播字段V1.xlsx'
 DEF_SCH = r'C:\Users\QwQ\Desktop\10-11月天猫排班表.xlsx'
 
 ONLY_REFUND_SCENES = ('未发货仅退款', '已收到货仅退款', '在途仅退款')
 
 # ---------------------------------------------------------------
-# 场次类型（活动场次）判定
-# 天猫后台无「活动」字段，只能从「场次信息」标题反推。
-# 实测 25 种标题，按关键词归为三档；顺序为先判大促、再判上新。
-# 若要调整口径，改这两个元组即可，重跑管线生效。
+# 场次的活动节奏：改用「天猫活动节奏」官方表（V1 新增）
+# 该表为逐日日历，横排两块：A~D 为 2026 年（日期/节奏/类型/直播间机制），
+# G~I 为 2025 年（日期/节奏/类型）。原按标题关键词猜测的 大促/上新/常规 已废弃。
+#
+# 名称清洗规则（只做归一，不改语义）：
+#   1. 节奏名里带换行和券信息备注（"无消费券""无消费券和限时红包"等），备注不属于活动名，剔除；
+#   2. 去掉官方名的"天猫"前缀；
+#   3. 同一活动的不同年份写法合并（见 RHYTHM_ALIAS），分波次/分阶段的名称保持独立，
+#      因为它们是不同的活动期，合并会掩盖节奏差异。
+# 空节奏（表里没填）按官方"类型=日销"处理，显示为「日销」。
 # ---------------------------------------------------------------
-PROMO_KW = ('双十一', '双11', '双十二', '双12', '3.8', '38焕新', '焕新周',
-            '五一', '狂欢', '预售', '开运', '快闪')
-NEW_KW = ('首发', '新品', '上新', '上市', '新色', '箱会')
-EVENT_TYPES = ('大促', '上新', '常规')
+RHYTHM_EMPTY = '日销'
+RHYTHM_NOTES = ('无消费券和限时红包', '无消费券限时红包', '无消费券', '有消费券',
+                '限时红包', '无消费券无红包')
+RHYTHM_ALIAS = {
+    '天猫新势力周': '新势力周',
+    '8月新势力周': '新势力周',
+    '618狂欢节': '618',
+    '天猫38焕新周': '38焕新周',
+    '天猫新风潮': '新风潮',
+    '天猫510周年庆': '510周年庆',
+    '天猫五一狂欢': '五一狂欢',
+    '天猫春上新': '春上新',
+}
 
 
-def classify_event(title):
-    t = title or ''
-    for k in PROMO_KW:
-        if k in t:
-            return '大促'
-    for k in NEW_KW:
-        if k in t:
-            return '上新'
-    return '常规'
+def clean_rhythm(v):
+    """官方节奏名归一：去换行/备注/天猫前缀，合并同一活动的跨年写法"""
+    if v is None:
+        return RHYTHM_EMPTY
+    s = str(v).replace('\r', ' ').replace('\n', ' ').strip()
+    for n in RHYTHM_NOTES:
+        s = s.replace(n, ' ')
+    s = s.replace('-', ' ').replace('－', ' ')
+    s = ' '.join(s.split())
+    s = s.replace(' ', '')
+    if s.startswith('天猫') and len(s) > 2:
+        s = s[2:]
+    s = RHYTHM_ALIAS.get(s, s)
+    return s or RHYTHM_EMPTY
+
+
+def load_rhythm(path):
+    """「天猫活动节奏」-> {date: (节奏名, 类型, 直播间机制)}"""
+    wb = openpyxl.load_workbook(path, data_only=True)
+    if '天猫活动节奏' not in wb.sheetnames:
+        return {}
+    ws = wb['天猫活动节奏']
+    out = {}
+    for r in ws.iter_rows(min_row=2, values_only=True):
+        # 左块：日期/节奏/类型/机制
+        if r[0] is not None:
+            d = dstr(r[0])
+            if len(d) == 10 and d[:4].isdigit():
+                out[d] = (clean_rhythm(r[1]),
+                          (str(r[2]).strip() if r[2] else RHYTHM_EMPTY),
+                          (str(r[3]).strip() if len(r) > 3 and r[3] else ''))
+        # 右块：日期/节奏/类型
+        if len(r) > 8 and r[6] is not None:
+            d = dstr(r[6])
+            if len(d) == 10 and d[:4].isdigit():
+                out.setdefault(d, (clean_rhythm(r[7]),
+                                   (str(r[8]).strip() if r[8] else RHYTHM_EMPTY), ''))
+    return out
 
 
 def f(x):
@@ -115,11 +159,13 @@ def main():
     wb = openpyxl.load_workbook(args.src, data_only=True)
     sched = load_schedule(args.sch)
     sched_days = sorted({k[0] for k in sched})
+    rhythm = load_rhythm(args.src)
 
     # ---------- 场次主表 ----------
     rows = list(wb['直播单场数据源'].iter_rows(min_row=2, values_only=True))
     sessions = []
     matched = unmatched_in_range = 0
+    miss_rhythm = 0
     shift_hours = {}
     for r in rows:
         if not r[0]:
@@ -149,12 +195,17 @@ def main():
             flag = 'long'
 
         title = (str(r[2]).strip() if r[2] else '')[:36]
+        rn, rt, mech = rhythm.get(d, (RHYTHM_EMPTY, RHYTHM_EMPTY, ''))
+        if d not in rhythm:
+            miss_rhythm += 1
         sessions.append({
             'd': d,
             'sh': shift,
             'an': anchor or '',
             't': title,
-            'pt': classify_event(title),
+            'rn': rn,          # 官方活动节奏名（已归一）
+            'rt': rt,          # 官方类型：活动 / 日销
+            'mg': mech,        # 直播间机制（仅少量日期有值）
             'gmv': r0(gmv), 'rf': r0(rf), 'net': r0(net),
             'dur': round(dur_min, 1) if dur_min is not None else None,
             'uv': f(r[9]),
@@ -248,6 +299,10 @@ def main():
     anchors = sorted({s['an'] for s in sessions if s['an']})
     with_anchor = [s for s in sessions if s['an']]
 
+    # 节奏清单：按场次数降序，前端筛选器直接照此排序
+    rhythm_counts = Counter(s['rn'] for s in sessions)
+    rhythm_list = [k for k, _ in rhythm_counts.most_common()]
+
     meta = {
         'generated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'src': os.path.basename(args.src),
@@ -267,9 +322,13 @@ def main():
         'shopTo': shop_daily[-1]['d'] if shop_daily else '',
         'goodsCount': len(goods_meta),
         'shiftHours': {k: round(sum(v) / len(v), 1) for k, v in shift_hours.items()},
-        'eventCounts': dict(Counter(s['pt'] for s in sessions)),
-        'eventCountsAnchor': dict(Counter(s['pt'] for s in with_anchor)),
-        'eventFrom': '场次信息标题关键词',
+        'rhythms': rhythm_list,
+        'rhythmCounts': dict(rhythm_counts),
+        'rhythmFrom': '天猫活动节奏（官方表）',
+        'rhythmDays': len(rhythm),
+        'rhythmMiss': miss_rhythm,
+        'rhythmMechDays': sum(1 for s in sessions if s['mg']),
+        'typeCounts': dict(Counter(s['rt'] for s in sessions)),
     }
 
     out = {
@@ -298,6 +357,11 @@ def main():
     print('店铺日级        :', len(shop_daily), f"({meta['shopFrom']} ~ {meta['shopTo']})")
     print('商品数 / 商品日 :', meta['goodsCount'], '/', len(gd), '天')
     print('班次开播均值    :', meta['shiftHours'])
+    print('活动节奏        : 日历', meta['rhythmDays'], '天 / 节奏名', len(rhythm_list),
+          '个 / 未匹配场次', meta['rhythmMiss'])
+    print('  活动/日销     :', meta['typeCounts'])
+    print('  场次最多      :', '、'.join(f'{k}{v}' for k, v in rhythm_counts.most_common(8)))
+    print('  有机制日期场次:', meta['rhythmMechDays'])
     print('输出            :', args.out, f'{size:.0f} KB')
     print('=' * 54)
 
