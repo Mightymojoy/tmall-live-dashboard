@@ -151,6 +151,17 @@ async function loadData() {
     }
   }
 
+  /* 直播归因明细：订单明细表，[索引 / 订单支付 / 订单退款 / 其中已确认收货]，步长 4。
+     只覆盖 liveMeta.from ~ liveMeta.to 这几十天，其余区间没有归因可达，前端按窗口截取。 */
+  D.liveMeta = j.liveMeta || { from: '', to: '', days: 0, goods: 0, sessions: 0, pay: 0 };
+  D.liveDaily = [];
+  for (const d of Object.keys(j.liveDaily || {}).sort()) {
+    const arr = j.liveDaily[d];
+    for (let i = 0; i < arr.length; i += 4) {
+      D.liveDaily.push({ d, gi: arr[i], pay: arr[i + 1], rf: arr[i + 2], rfShip: arr[i + 3] });
+    }
+  }
+
   for (const s of D.sessions) {
     s.durH = s.dur ? s.dur / 60 : null;
     s.hvGmv = calc.rate(s.gmv, s.durH);
@@ -304,26 +315,79 @@ function presetRange(k) {
 }
 
 function aggGoods(from, to) {
-  const m = new Map();
+  /* 直播归因窗口：明细只覆盖 liveMeta.from ~ liveMeta.to，取与当前筛选区间的交集。
+     三列（直播间金额 / 渗透率 / 直播间退货率）都只在这个窗口内有意义。 */
+  const lf = D.liveMeta && D.liveMeta.from ? D.liveMeta.from : '9999-12-31';
+  const lt = D.liveMeta && D.liveMeta.to ? D.liveMeta.to : '0000-01-01';
+  const wf = from > lf ? from : lf;
+  const wt = to < lt ? to : lt;
+  const hasLive = wf <= wt && D.liveDaily.length > 0;
+
+  const m = new Map();      // 全区间：店铺口径
+  const w = new Map();      // 归因窗口：渗透率分母（发货额）
   for (const r of D.goodsDaily) {
-    if (r.d < from || r.d > to) continue;
-    const g = m.get(r.gi);
-    if (g) { g.pay += r.pay; g.only += r.only; g.ret += r.ret; }
-    else m.set(r.gi, { gi: r.gi, pay: r.pay, only: r.only, ret: r.ret });
+    const full = r.d >= from && r.d <= to;
+    const win = hasLive && r.d >= wf && r.d <= wt;
+    if (!full && !win) continue;
+    if (full) {
+      const g = m.get(r.gi);
+      if (g) { g.pay += r.pay; g.only += r.only; g.ret += r.ret; }
+      else m.set(r.gi, { gi: r.gi, pay: r.pay, only: r.only, ret: r.ret });
+    }
+    if (win) {
+      const g = w.get(r.gi);
+      if (g) { g.pay += r.pay; g.only += r.only; }
+      else w.set(r.gi, { pay: r.pay, only: r.only });
+    }
   }
+
+  /* 订单侧：窗口内按商品的支付额，以及窗口合计（用于求校准系数） */
+  const lm = new Map();
+  let ordPay = 0;
+  if (hasLive) {
+    for (const r of D.liveDaily) {
+      if (r.d < wf || r.d > wt) continue;
+      const o = lm.get(r.gi);
+      if (o) { o.pay += r.pay; o.rf += r.rf; o.rfShip += r.rfShip; }
+      else lm.set(r.gi, { pay: r.pay, rf: r.rf, rfShip: r.rfShip });
+      ordPay += r.pay;
+    }
+  }
+  /* 校准系数 k = 窗口内场次口径成交 ÷ 窗口内订单口径支付。
+     两者不是同一口径（下单归集 vs 支付时所在场），逐日 k 稳定在 0.34~0.60、中位 0.47，
+     没有一天接近 1，属系统性差异，故用总量锚定、结构沿用订单表占比。 */
+  const gmvW = hasLive
+    ? F.sessions.reduce((t, s) => t + (s.d >= wf && s.d <= wt ? (s.gmv || 0) : 0), 0)
+    : 0;
+  const k = ordPay > 0 && gmvW > 0 ? gmvW / ordPay : null;
+
   const out = [...m.values()].map(g => {
     const meta = D.goodsMeta[g.gi] || { name: '—', cat: '未匹配', prod: '未匹配' };
     /* 发货 = 支付 − 仅退款（三个仅退款场景）；退货率 = 退货退款 ÷ 发货。
        源表偶有「仅有退款、无支付」的残行，已在上游剔除，这里再兜一次底不出现负数 */
     const ship = Math.max(g.pay - g.only, 0);
+    const gw = w.get(g.gi) || { pay: 0, only: 0 };
+    const shipW = Math.max(gw.pay - gw.only, 0);
+    const o = lm.get(g.gi) || null;
+    const liveAmt = o && k ? o.pay * k : null;
     return {
       i: g.gi, name: meta.name, cat: meta.cat, prod: meta.prod,
       pay: g.pay, only: g.only, ship, ret: g.ret,
       rate: ship ? g.ret / ship : null,
       retRate: ship ? g.ret / ship : null,
+      /* 直播间三列：无订单明细的商品保留 null，页面显示「—」，不能当 0 算 */
+      live: liveAmt,
+      liveShip: shipW,
+      pen: liveAmt !== null && shipW > 0 ? liveAmt / shipW : null,
+      liveOrd: o ? o.pay : null,
+      liveRf: o ? o.rf : null,
+      liveRfShip: o ? o.rfShip : null,
     };
   });
   out.sort((a, b) => b.ship - a.ship);
+  out.liveK = k;
+  out.liveFrom = hasLive ? wf : '';
+  out.liveTo = hasLive ? wt : '';
   return out;
 }
 

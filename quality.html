@@ -298,15 +298,24 @@ function renderGoods() {
   const groups = [...byProd.entries()].map(([prod, arr]) => {
     const ship = arr.reduce((t, x) => t + x.ship, 0);
     const ret = arr.reduce((t, x) => t + x.ret, 0);
+    /* 直播间金额按「有归因明细的商品」汇总，渗透率的分母也只用这些商品的发货额，
+       否则产品里混进无明细商品会把渗透率压低，看起来像直播卖不动 */
+    const hasL = arr.filter(x => x.live !== null);
+    const live = hasL.length ? hasL.reduce((t, x) => t + x.live, 0) : null;
+    const liveShip = hasL.reduce((t, x) => t + x.liveShip, 0);
+    const pen = live !== null && liveShip > 0 ? live / liveShip : null;
     const catSum = {};
     arr.forEach(x => { catSum[x.cat] = (catSum[x.cat] || 0) + x.ship; });
     const cat = Object.keys(catSum).sort((a, b) => catSum[b] - catSum[a])[0] || '—';
     arr.sort((a, b) => b.ship - a.ship);
-    return { prod, cat, n: arr.length, ship, ret, rate: ship ? ret / ship : null, items: arr };
+    return { prod, cat, n: arr.length, ship, ret, rate: ship ? ret / ship : null, live, liveShip, pen, items: arr };
   }).sort((a, b) => b.ship - a.ship);
 
+  const k = F.goods.liveK;
+  const lf = F.goods.liveFrom, lt = F.goods.liveTo;
   document.getElementById('goodsSub').textContent =
-    '按产品折叠 · 按发货金额排序 · ' + rows.length + ' 个商品 / ' + groups.length + ' 个产品';
+    '按产品折叠 · 按发货金额排序 · ' + rows.length + ' 个商品 / ' + groups.length + ' 个产品'
+    + (k ? ' · 直播间三列基于 ' + rows.length + ' 个商品中 ' + rows.filter(x => x.live !== null).length + ' 个有明细，校准系数 ' + k.toFixed(3) : ' · 本区间无直播明细');
 
   let html = '<thead><tr><th>大类</th><th>产品</th><th>商品</th><th class="num">店铺发货金额</th>'
     + '<th class="num">直播间金额</th><th class="num">渗透率</th>'
@@ -322,22 +331,27 @@ function renderGoods() {
       + '<td><span class="pname"><span class="car">▸</span>' + gr.prod + '</span></td>'
       + '<td class="gsum">' + gr.n + ' 个商品</td>'
       + '<td class="num">' + fmt.money(gr.ship) + '</td>'
-      + '<td class="num dash">—</td><td class="num dash">—</td>'
+      + numCell(gr.live)
+      + pctCell(gr.pen, gr.live === null ? '' : '直播间金额 ' + fmt.money(gr.live) + ' ÷ 有明细商品发货 '
+        + fmt.money(gr.liveShip) + ' = ' + fmt.pct(gr.pen) + '；该产品全部发货 ' + fmt.money(gr.ship)
+        + '，其中 ' + fmt.pct(gr.liveShip / (gr.ship || 1)) + ' 有直播明细')
       + '<td class="num" style="color:' + retColor(gr.rate) + ';font-weight:600">' + fmt.pct(gr.rate) + '</td>'
-      + '<td class="num dash">—</td></tr>';
+      + '<td class="num dash" title="订单明细缺「退款场景」字段，无法把退货退款从仅退款里拆出来">—</td></tr>';
 
     gr.items.forEach(g => {
       html += '<tr class="tr-item" data-g="' + gi + '"' + (gOpenAll ? '' : ' hidden') + '>'
         + '<td></td><td></td>'
         + '<td class="name-cell indent" title="' + g.name + '">' + g.name + '</td>'
         + '<td class="num">' + fmt.money(g.ship) + '</td>'
-        + '<td class="num dash">—</td><td class="num dash">—</td>'
+        + numCell(g.live)
+        + pctCell(g.pen, g.live === null ? '' : '直播间金额 ' + fmt.money(g.live) + ' ÷ 店铺发货 '
+          + fmt.money(g.liveShip) + ' = ' + fmt.pct(g.pen))
         + '<td class="num" style="color:' + retColor(g.rate) + ';font-weight:600">' + fmt.pct(g.rate) + '</td>'
-        + '<td class="num dash">—</td></tr>';
+        + '<td class="num dash" title="订单明细缺「退款场景」字段，无法把退货退款从仅退款里拆出来">—</td></tr>';
     });
   });
   document.getElementById('goodsTable').innerHTML = html + '</tbody>';
-
+  document.getElementById('goodsNote').innerHTML = goodsNoteHtml(k, lf, lt, rows);
   /* 产品行点击展开 / 收起自己那一组 */
   document.querySelectorAll('.tr-grp').forEach(tr => {
     tr.onclick = () => {
@@ -356,11 +370,50 @@ function renderGoods() {
     document.querySelectorAll('.tr-item').forEach(x => { x.hidden = !gOpenAll; });
     btn.textContent = gOpenAll ? '收起全部' : '展开全部';
   };
+}
 
-  document.getElementById('goodsNote').innerHTML =
-    '<b>直播间金额 / 渗透率 / 直播间退货率暂缺</b>：现有「订单数据」只覆盖 25 个商品、区间支付 703 万元，'
-    + '而其合计为同期场次 GMV 的 192%，两套口径未对齐，直接当分子会把渗透率算高一倍。'
-    + '需运营按「商品ID + 子订单ID + 场次ID + 支付时间 + 支付金额 + 退款金额 + 退款场景」重导全量直播间成交明细后补齐这三列。';
+/* 直播间三列的空值渲染：null 一律显示「—」，不能当 0 */
+function numCell(v) {
+  return v === null || v === undefined
+    ? '<td class="num dash">—</td>'
+    : '<td class="num">' + fmt.money(v) + '</td>';
+}
+function pctCell(v, title) {
+  if (v === null || v === undefined) return '<td class="num dash">—</td>';
+  const col = v >= 0.5 ? 'var(--gold-d)' : 'var(--ink)';
+  return '<td class="num"' + (title ? ' title="' + title + '"' : '')
+    + ' style="color:' + col + ';font-weight:600">' + fmt.pct(v) + '</td>';
+}
+
+/* 单品明细表下说明：把校准法讲透，避免被当成「直接拿订单金额 / 店铺发货」 */
+function goodsNoteHtml(k, lf, lt, rows) {
+  const lg = D.liveMeta || {};
+  if (!k) {
+    return '<b>本区间没有可用的直播归因明细</b>：订单明细只覆盖 '
+      + (lg.from || '—') + ' ~ ' + (lg.to || '—') + '（' + (lg.days || 0) + ' 天），'
+      + '选到更早的区间时这三列无法计算，故显示「—」。';
+  }
+  const ordPay = rows.reduce((t, g) => t + (g.liveOrd || 0), 0);
+  const gmv = F.sessions.reduce((t, s) => t + (s.d >= lf && s.d <= lt ? (s.gmv || 0) : 0), 0);
+  const nL = rows.filter(g => g.live !== null).length;
+  let s = '';
+  /* 区间越界必须在最前面说：否则「店铺发货金额 2.4 亿」配「渗透率 3%」会被当成真实渗透率 */
+  if (lf && lt && (lf !== F.from || lt !== F.to)) {
+    s += '<b>注意：本区间超出订单明细的覆盖范围</b>，直播间三列只能按 ' + lf + ' ~ ' + lt
+      + ' 这段计算，渗透率的分母也是这段的店铺发货额，与左边「店铺发货金额」那一列的区间不同，两者不可直接相除。<br>';
+  }
+  s += '<b>直播间金额 = 该商品订单支付额 × 校准系数 ' + k.toFixed(3) + '</b>。'
+    + '系数取「区间内场次口径成交 ' + fmt.money(gmv) + '元 ÷ 订单口径支付 ' + fmt.money(ordPay) + '元」。'
+    + '两个口径本就不同（场次表按下单归集，订单表按支付时用户所在场），'
+    + '逐日系数稳定在 0.34~0.60、中位 0.47，62 天中没有一天接近 1，属系统性差异而非噪声；'
+    + '所以用总量锚定场次口径、商品结构沿用订单表占比。';
+  s += '<br><b>渗透率</b> = 直播间金额 ÷ 店铺发货额，分母只含有归因明细的 ' + nL + ' 个商品'
+    + '（占本表 ' + rows.length + ' 个商品的 ' + fmt.pct(nL / (rows.length || 1)) + '），'
+    + '其余商品没有直播明细，显示「—」而不是 0。';
+  s += '<br><b>直播间退货率仍缺数据</b>：订单明细只有「退款金额」、没有「退款场景」，'
+    + '2,532 行退款记录里仅 182 行（7.2%）带确认收货时间，拆不出「退货退款」与「仅退款」。'
+    + '补这一个字段就能算，另两列已可用。';
+  return s;
 }
 
 /* ---------------- 06 ---------------- */
@@ -391,9 +444,28 @@ function renderInsight() {
       + fmt.pct(topCat.ship ? topCat.ret / topCat.ship : null) + '</b>，是退货大盘的主要影响因素。');
   }
 
+  /* 渗透率只在本区间能算的时候才说，越界区间下这个结论会被分母稀释，宁可不写 */
+  if (F.goods.liveK) {
+    const bp = new Map();
+    for (const g of F.goods) {
+      if (g.live === null) continue;
+      const p = bp.get(g.prod) || { prod: g.prod, live: 0, ship: 0 };
+      p.live += g.live; p.ship += g.liveShip;
+      bp.set(g.prod, p);
+    }
+    const pr = [...bp.values()].filter(x => x.ship > 500000)
+      .map(x => ({ prod: x.prod, pen: x.live / x.ship })).sort((a, b) => b.pen - a.pen);
+    if (pr.length >= 2) {
+      li.push('直播渗透率（直播间金额 ÷ 该产品有明细商品的发货额）：最高 <b>' + pr[0].prod + '</b> '
+        + fmt.pct(pr[0].pen) + '，最低 <b>' + pr[pr.length - 1].prod + '</b> ' + fmt.pct(pr[pr.length - 1].pen)
+        + '。渗透率越高的产品，销量越依赖直播承接，坑位与话术的波动会直接落到它的日销上。');
+    }
+  }
+
   document.getElementById('insight').innerHTML =
     '<h3>退款与流量结论</h3><ol>' + li.map(x => '<li>' + x + '</li>').join('') + '</ol>'
-    + '<div class="src">退货率 = 退货退款金额 ÷ 实际发货额；实际发货额 = 支付金额 − 未发货仅退款 − 在途仅退款 − 已收到货仅退款。商品级与店铺日级两套独立数据已交叉校验。</div>';
+    + '<div class="src">退货率 = 退货退款金额 ÷ 实际发货额；实际发货额 = 支付金额 − 未发货仅退款 − 在途仅退款 − 已收到货仅退款。'
+    + '直播间金额为订单明细校准值（订单支付 × 场次口径校准系数），商品级与店铺日级两套独立数据已交叉校验。</div>';
 }
 
 onResize(() => { renderRR(); });

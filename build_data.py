@@ -428,6 +428,62 @@ def main():
             continue
         gd.setdefault(d, []).extend([i, round(c['pay'], 1), round(c['only'], 1), round(c['ret'], 1)])
 
+    # ---------- 直播归因：商品 × 日 的订单支付与退款（订单明细表） ----------
+    # 用途：单品明细的「直播间金额 / 渗透率 / 直播间退货率」。
+    # 订单表「场次ID」记的是【支付时】用户所在的场，场次表「成交金额」记的是
+    # 【下单时】归集到该场，两者是不同口径，比值稳定但不等于 1：
+    #   实测逐日 k = 场次GMV / 订单支付：P10~P90 = 0.34~0.60、中位 0.47、
+    #   62 天里没有一天落在 0.8~1.25 → 是系统性口径差（跨场复购、退单未扣），不是噪声。
+    # 所以这里只下发商品×日的原始支付额，校准系数 k 由前端按【当前筛选区间】实时算，
+    # 任何区间都自洽，也不会把某个区间的估算值固化成事实。
+    lcell = {}
+    live_pay = 0.0
+    live_goods = set()
+    live_days = set()
+    live_sess = set()
+
+    def is_dt(x):
+        s = str(x)[:10]
+        return len(s) == 10 and s[0].isdigit()
+
+    for r in wb['订单数据'].iter_rows(min_row=2, values_only=True):
+        if not r[1]:
+            continue
+        gi = gidx.get(str(r[7]).strip() if r[7] else '')
+        if gi is None:
+            continue
+        pt = str(r[11])[:10]
+        if not is_dt(pt):
+            continue
+        pay = f(r[12]) or 0.0
+        rf = f(r[16]) or 0.0
+        # 订单表没有「退款场景」字段。有退款的行里仅 7.2%（182/2532）带确认收货时间，
+        # 据此只能判出发货后（≈退货退款）的那一小撮，远不足以当分母。
+        # 先按「有无确认收货时间」把退款粗分两桶存下来，等运营补场景字段可直接换用。
+        rf_ship = rf if (rf and is_dt(r[13])) else 0.0
+        c = lcell.setdefault((pt, gi), [0.0, 0.0, 0.0])
+        c[0] += pay
+        c[1] += rf
+        c[2] += rf_ship
+        live_pay += pay
+        live_goods.add(str(r[7]).strip())
+        live_days.add(pt)
+        live_sess.add(str(r[1]).strip())
+
+    # [商品索引, 订单支付, 订单退款, 其中已确认收货], 步长 4
+    lgd = {}
+    for (d, gi), c in sorted(lcell.items()):
+        lgd.setdefault(d, []).extend([gi, round(c[0], 1), round(c[1], 1), round(c[2], 1)])
+
+    live_meta = {
+        'from': min(live_days) if live_days else '',
+        'to': max(live_days) if live_days else '',
+        'days': len(live_days),
+        'goods': len(live_goods),
+        'sessions': len(live_sess),
+        'pay': round(live_pay, 1),
+    }
+
     anchors = sorted({s['an'] for s in sessions if s['an']})
     with_anchor = [s for s in sessions if s['an']]
 
@@ -491,6 +547,8 @@ def main():
         'shopDaily': shop_daily,
         'goodsMeta': goods_meta,
         'gd': gd,
+        'liveDaily': lgd,
+        'liveMeta': live_meta,
         'targets': targets,
     }
     with open(args.out, 'w', encoding='utf-8') as fp:
@@ -510,6 +568,9 @@ def main():
     print('排班覆盖        :', f"{meta['schedFrom']} ~ {meta['schedTo']}，区间内未匹配 {meta['unmatchedInSchedRange']}")
     print('店铺日级        :', len(shop_daily), f"({meta['shopFrom']} ~ {meta['shopTo']})")
     print('商品数 / 商品日 :', meta['goodsCount'], '/', len(gd), '天')
+    print('直播归因明细    :', live_meta['goods'], '商品 /', live_meta['days'], '天 /',
+          live_meta['sessions'], '场', f"({live_meta['from']} ~ {live_meta['to']})",
+          '支付', f"{live_meta['pay']:,.0f}")
     print('班次开播均值    :', meta['shiftHours'])
     print('活动节奏        : 日历', meta['rhythmDays'], '天 / 节奏名', len(rhythm_list),
           '个 / 未匹配场次', meta['rhythmMiss'])
