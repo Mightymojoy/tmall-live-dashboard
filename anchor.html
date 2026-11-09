@@ -64,9 +64,14 @@
 .mtx thead th {
   background: #fff; border: none; border-bottom: 2px solid var(--line);
   text-align: center; font-size: 12px; font-weight: 600; color: var(--ink);
-  padding: 6px 6px 8px; position: sticky; top: 58px; z-index: 3; white-space: nowrap;
+  padding: 6px 6px 8px; white-space: nowrap; vertical-align: bottom;
 }
-/* 顶栏高 58px 且自身 sticky，表头若贴 top:0 会被顶栏盖住，往下让 58px 才对得齐 */
+/* 表头【不做】竖向吸顶——这里踩过坑：
+   #cmpWrap 是 .tbl-wrap（overflow:auto）的滚动容器，它自身不会竖向滚动，
+   所以在 thead th 上写 top:58px 不会「滚动时吸附」，而是被约束直接往下推 58px：
+   thead 盒留在原位，子元素 th 被推开，于是「出场场次」整行 +「成交金额」半行被盖住。
+   要真吸顶必须先把滚动容器拿掉，代价是窄屏丢掉横向滚动，不划算；
+   13 行指标整屏可见，不需要吸顶。横向滚动的首列冻结（th.rix left:0）保留。 */
 .mtx thead th .sh {
   display: block; font-size: 9.5px; font-weight: 400; color: var(--ink-4);
   margin-top: 2px; letter-spacing: .02em;
