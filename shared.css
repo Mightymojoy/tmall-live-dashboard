@@ -116,7 +116,7 @@ a { color: inherit; }
 .sp-hr { height: 1px; background: var(--line); margin: 7px 0 6px; }
 .sp-tip { font-size: 10.5px; color: var(--ink-4); line-height: 1.6; }
 
-/* ================= 五维度总控筛选条 ================= */
+/* ================= 五维度总控筛选条（下拉式） ================= */
 .fbar {
   position: sticky; top: 58px; z-index: 39;
   background: #fff; border-bottom: 1px solid var(--line);
@@ -125,34 +125,66 @@ a { color: inherit; }
   max-width: 1360px; margin: 0 auto; padding: 0 28px;
   height: 52px; display: flex; align-items: center; gap: 12px;
 }
-/* 总控条：三行结构，时间维度常驻，其余维度可收起 */
+/* 一行五个下拉：高度固定，不随候选值多少而伸缩 */
 .fbar-in.fbg {
-  height: auto; flex-direction: column; align-items: stretch;
-  gap: 0; padding: 5px 28px 6px;
+  height: 52px; flex-direction: row; align-items: center; gap: 8px;
 }
-.fb-row {
-  display: flex; align-items: center; gap: 10px;
-  min-height: 33px; flex-wrap: nowrap;
-}
-.fb-row > * { flex: 0 0 auto; }
-/* 活动名展开后整行铺开换行，不再把右侧的机制组挤出去 */
-.fb-row.wraprow { flex-wrap: wrap; row-gap: 5px; padding-bottom: 4px; }
-.fb-body.collapsed { display: none; }
 
-/* 一个维度 = 一组：标签 + 候选值 + 反选。组间一条竖线，边界不靠猜 */
-.fb-g { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.fb-g.sep { padding-left: 11px; border-left: 1px solid var(--line); }
-/* 只允许收缩、不主动撑满：反选按钮才会紧跟候选值，不被推到行尾孤零零 */
-.fb-g.grow { flex: 0 1 auto; min-width: 0; }
-.fb-glab {
-  font-size: 10.5px; color: var(--ink-4); letter-spacing: .06em;
-  white-space: nowrap; flex: 0 0 auto;
+/* 一个下拉 = 一个维度：按钮只显示「标签 + 当前选择」 */
+.dd { position: relative; flex: 0 0 auto; }
+.dd-btn {
+  display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px;
+  font-family: inherit; font-size: 12px; color: var(--ink-2);
+  background: #fff; border: 1px solid var(--line); border-radius: 3px;
+  cursor: pointer; white-space: nowrap; transition: .12s;
 }
-/* 父子关系符：类型 › 活动名 */
-.fb-arrow {
-  color: var(--ink-3); font-size: 15px; line-height: 1; font-weight: 600;
-  flex: 0 0 auto; margin: 0 -3px; transform: translateY(-1px);
+.dd-btn:hover { border-color: var(--gold); }
+.dd-btn .lb { font-size: 10.5px; color: var(--ink-4); letter-spacing: .04em; }
+.dd-btn .vl {
+  font-weight: 500; color: var(--ink);
+  max-width: 150px; overflow: hidden; text-overflow: ellipsis;
 }
+.dd-btn .ar {
+  font-style: normal; font-size: 9px; color: var(--ink-4);
+  transition: transform .15s; line-height: 1;
+}
+.dd.open .dd-btn { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(201,169,98,.15); }
+.dd.open .dd-btn .ar { transform: rotate(180deg); }
+/* 该维度确有筛选时才变金色：否则五个按钮全亮等于没重点 */
+.dd.on .dd-btn { border-color: var(--gold); background: var(--gold-bg); }
+.dd.on .dd-btn .vl { color: var(--gold-d); }
+
+/* 展开的面板：白底浮层，盖在内容之上 */
+.dd-pop {
+  display: none; position: absolute; top: calc(100% + 7px); left: 0; z-index: 60;
+  background: #fff; border: 1px solid var(--line); border-radius: 5px;
+  box-shadow: 0 12px 32px rgba(30,25,15,.14);
+  padding: 13px 15px; min-width: 298px;
+}
+.dd.open .dd-pop { display: block; }
+/* 靠右的维度改右对齐，面板不出视口 */
+.dd.flip .dd-pop { left: auto; right: 0; }
+.dd-pop.wide { min-width: 400px; }
+
+.dd-sec + .dd-sec { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line-2); }
+.dd-lb { font-size: 10.5px; color: var(--ink-4); letter-spacing: .06em; white-space: nowrap; }
+.dd-sec > .dd-lb { display: block; margin-bottom: 7px; }
+.dd-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-bottom: 9px;
+}
+/* 面板里候选值一律换行铺开，不出现横向滚动条 */
+.dd-pop .chips { background: transparent; padding: 0; flex-wrap: wrap; gap: 4px; }
+.dd-pop .chip {
+  border: 1px solid var(--line-2); background: #fff; padding: 3px 9px;
+}
+.dd-pop .chip:hover { border-color: var(--gold); background: #fff; }
+.dd-pop .chip.on { border-color: var(--ink); }
+.dd-pop .chip.more { border-color: var(--gold-l); }
+.dd-pop .dr { margin: 0; }
+.dd-pop .dr input[type="date"] { width: 122px; }
+.dd-pop .fb-cmpnote { display: block; margin: 9px 0 0; max-width: none; }
+
 .fb-right {
   margin-left: auto; display: flex; align-items: center; gap: 10px;
   flex: 0 0 auto;
@@ -161,14 +193,7 @@ a { color: inherit; }
   display: flex; gap: 3px; background: var(--bg); padding: 2px;
   border-radius: 3px; flex: 0 0 auto; min-width: 0;
 }
-/* 组内唯一允许压缩的组（主播 / 活动名展开）才滚动或换行 */
-.fb-g.grow > .chips.scrolly { flex: 1 1 auto; }
-.chips.scrolly { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
-.chips.scrolly::-webkit-scrollbar { height: 3px; }
-.chips.scrolly::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
-.chips.scrolly > .chip { flex: 0 0 auto; }
-/* 展开态：换行铺开，替代原来那条横向滚动条 */
-.chips.wrap { flex-wrap: wrap; max-width: min(74vw, 960px); }
+.chip { flex: 0 0 auto; }
 .chip {
   font-size: 12px; color: var(--ink-2); padding: 3px 9px; border-radius: 2px;
   cursor: pointer; white-space: nowrap; transition: .12s; user-select: none;
@@ -468,17 +493,6 @@ td.name-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* ================= 响应式 ================= */
-/* 首行要装 7 个预设 + 区间 + 粒度 + 对比 + 摘要 + 收起，
-   视口窄于 1360 时按组整体折行，不要把摘要和收起裁掉 */
-@media (max-width: 1360px) {
-  .fb-row { flex-wrap: wrap; row-gap: 5px; gap: 8px; }
-  /* 实测首行在 1280 下超出约 42px：收紧 chip 左右留白即可装下，
-     不必靠折行或截断 */
-  .chip { padding: 3px 7px; }
-  /* 区间已在日期框里、场次数在页面标题里，窄屏不再重复；
-     但「筛选后 X / Y」是操作反馈，必须留下 */
-  .fb-sum { display: none; }
-}
 @media (max-width: 1180px) {
   .g6 { grid-template-columns: repeat(3, minmax(0,1fr)); }
   .g5 { grid-template-columns: repeat(3, minmax(0,1fr)); }
@@ -486,10 +500,9 @@ td.name-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
   .g21, .g12 { grid-template-columns: minmax(0,1fr); }
   .fbar-in { height: auto; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; gap: 8px; }
   .fbar-in.fbg { padding-top: 6px; padding-bottom: 6px; }
-  .fb-row { flex-wrap: wrap; row-gap: 6px; }
-  .fb-g.sep { padding-left: 8px; }
-  .chips.scrolly { max-width: 100%; }
-  .fbar-meta { width: 100%; order: 3; }
+  /* 五个下拉 + 摘要合计约 640px，1180 下仍可单行；只收一点留白 */
+  .dd-btn { padding: 0 8px; gap: 6px; }
+  .fbar-meta { white-space: nowrap; }
   .stamp-age { display: none; }
   .stamp-pop::before { right: 74px; }
 }

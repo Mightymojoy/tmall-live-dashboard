@@ -254,7 +254,7 @@ const F = {
   /* 对比口径：prev = 上一等长区间（环比），yoy = 去年同期（同比） */
   cmp: 'prev',
   yoyFrom: '', yoyTo: '', yoySessions: [], hasYoy: false,
-  grain: 'day', barCollapsed: false,
+  grain: 'day',
   /* 活动名候选多（32 个节奏），默认折叠，展开后换行铺开 */
   rnOpen: false,
 };
@@ -377,9 +377,24 @@ function pruneRn() {
 }
 
 function dimToggle(k, v) {
-  let cur = F.dims[k] ? new Set(F.dims[k]) : new Set(dimOptions(k).map(x => x[0]));
-  if (cur.has(v)) cur.delete(v); else cur.add(v);
-  F.dims[k] = cur.size ? cur : null;
+  if (k === 'rt') {
+    /* 活动类型只有「日销 / 活动」两档，是父子结构的父级。
+       按多选处理会出这种事：先选「活动」再点「日销」，两个都选中 = 不限，
+       看着点了却没筛住。所以类型用单选语义：点新的替换，再点自己取消 */
+    const only = F.dims.rt && F.dims.rt.size === 1 && F.dims.rt.has(v);
+    F.dims.rt = only ? null : new Set([v]);
+  } else {
+    let cur = F.dims[k] ? new Set(F.dims[k]) : null;
+    if (!cur) {
+      /* 从「不限」点某一项 = 只看该项。沿用「全集减一」会让点一个名字变成排除他 */
+      cur = new Set([v]);
+    } else if (cur.has(v)) {
+      cur.delete(v);
+    } else {
+      cur.add(v);
+    }
+    F.dims[k] = cur.size ? cur : null;
+  }
   normalizeDim(k);
   setRange(F.from, F.to, F.preset);
 }
@@ -546,26 +561,47 @@ function syncBar() {
     }
   }
 
-  /* 行级换行统一在这里设置：活动名与机制同属一行，
-     若由各组自行 toggle，后渲染的「机制」会把换行状态清掉 */
-  document.querySelectorAll('.fb-row.wraprow').forEach(el => el.classList.remove('wraprow'));
-  if (F.rnOpen) {
-    const rnHost = document.getElementById('chRn');
-    const row = rnHost && rnHost.closest('.fb-row');
-    if (row) row.classList.add('wraprow');
-  }
-
   const reset = document.getElementById('fbReset');
-  if (reset) reset.style.visibility = (F.dimActive || F.grainPref !== 'auto') ? 'visible' : 'hidden';
-  document.querySelectorAll('.fb-body').forEach(el => el.classList.toggle('collapsed', !!F.barCollapsed));
-  const tg = document.getElementById('fbToggle');
-  if (tg) tg.textContent = F.barCollapsed ? '展开维度' : '收起';
+  if (reset) reset.style.visibility = (F.dimActive || F.grainPref !== 'auto' || F.cmp !== 'prev') ? 'visible' : 'hidden';
+
+  syncDdBtns();
 }
 
 /* 活动名折叠阈值：再多就折叠成「更多 +N」，不铺横向滚动条 */
 const RN_FOLD = 4;
 /* 活动名「日销」与外层类型「日销」同名，加后缀区分两者不是一回事 */
 const RN_ALIAS = { '日销': '日销（常规）' };
+
+/* 下拉按钮上的「当前选择」摘要：不打开面板也能看出筛了什么 */
+function syncDdBtns() {
+  const set = (id, txt, on) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const v = el.querySelector('.vl');
+    if (v) v.textContent = txt;
+    el.classList.toggle('on', !!on);
+  };
+  const one = k => {
+    const cur = F.dims[k];
+    if (!cur || !cur.size) return null;
+    const arr = [...cur];
+    if (arr.length === 1) return (k === 'rn' && RN_ALIAS[arr[0]]) ? RN_ALIAS[arr[0]] : arr[0];
+    return '已选 ' + arr.length + ' 项';
+  };
+
+  const pT = PRESETS.find(p => p.k === F.preset);
+  /* 时间不做金色高亮：区间本身就写在按钮上，且各页默认区间不同
+     （总览 30 天、班次与主播 90 天），一亮就分不清「改过」还是「本来如此」；
+     金色只留给真正被筛过的四个维度 */
+  set('ddTime', pT ? pT.t : `${F.from.slice(5)} ~ ${F.to.slice(5)}`, false);
+  set('ddSh', one('sh') || '全部', !!F.dims.sh);
+  set('ddAn', one('an') || '全部', !!F.dims.an);
+
+  /* 店铺活动是父子两层：类型与活动名各取摘要再合并，避免只显示一半 */
+  const act = [one('rt'), one('rn')].filter(Boolean).join(' · ');
+  set('ddAct', act || '全部', !!(F.dims.rt || F.dims.rn));
+  set('ddMg', one('mg') || '全部', !!F.dims.mg);
+}
 
 /* 一组维度 chips：候选值按场次数量排序，选中态高亮，点击切换 */
 function renderDimGroup(k, hostId, unit) {
@@ -580,7 +616,7 @@ function renderDimGroup(k, hostId, unit) {
   const shown = (foldable && !open) ? opts.slice(0, RN_FOLD) : opts;
   /* 每组「全量」按钮写清指向：类型组叫「不限类型」、活动名组叫「全部活动」，
      否则同一行并排两个「不限/全部」根本分不出各管哪一组 */
-  const allLab = (k === 'rt') ? '不限类型'
+  const allLab = (k === 'rt') ? '不限'
     : (k === 'rn') ? '全部活动' : '全部';
 
   let html = `<button type="button" class="chip dchip${cur ? '' : ' on'}" data-dim="${k}" data-v="">${allLab}</button>`;
@@ -592,7 +628,6 @@ function renderDimGroup(k, hostId, unit) {
       : `<button type="button" class="chip more" data-fold="rn" title="展开全部 ${opts.length} 个活动名">更多 +${opts.length - RN_FOLD}</button>`;
   }
   host.innerHTML = html;
-  host.classList.toggle('wrap', open);
 }
 
 function escTxt(s) {
@@ -677,81 +712,104 @@ function mountShell() {
   if (fb) {
     fb.className = 'fbar';
     fb.innerHTML = `<div class="fbar-in fbg">
-      <!-- 第 1 行：只看时间。预设 → 精确日期 → 粒度 → 对比口径，由粗到细 -->
-      <div class="fb-row">
-        <div class="fb-g">
-          <span class="fb-glab">时间</span>
-          <div class="chips">
-            ${PRESETS.map(p => `<button type="button" class="chip" data-p="${p.k}">${p.t}</button>`).join('')}
+      <!-- 一行五个下拉：默认只显示「标签 + 当前选择」，点开才铺候选值，
+           避免五组 chip 平铺把筛选条撑成三行 -->
+      <div class="dd" id="ddTime">
+        <button type="button" class="dd-btn" aria-haspopup="true">
+          <span class="lb">时间</span><span class="vl">近 30 天</span><i class="ar">▾</i>
+        </button>
+        <div class="dd-pop wide">
+          <div class="dd-sec">
+            <span class="dd-lb">快捷区间</span>
+            <div class="chips">
+              ${PRESETS.map(p => `<button type="button" class="chip" data-p="${p.k}">${p.t}</button>`).join('')}
+            </div>
           </div>
-        </div>
-        <div class="dr">
-          <input type="date" id="dFrom" aria-label="开始日期">
-          <span class="to">→</span>
-          <input type="date" id="dTo" aria-label="结束日期">
-        </div>
-        <div class="fb-g sep">
-          <span class="fb-glab">粒度</span>
-          <div class="chips">
-            ${GRAINS.map(g => `<button type="button" class="chip" data-g="${g.k}" title="${g.k === 'auto' ? '按区间长度自动选择' : ''}">${g.t}</button>`).join('')}
+          <div class="dd-sec">
+            <span class="dd-lb">精确区间</span>
+            <div class="dr">
+              <input type="date" id="dFrom" aria-label="开始日期">
+              <span class="to">→</span>
+              <input type="date" id="dTo" aria-label="结束日期">
+            </div>
           </div>
-        </div>
-        <div class="fb-g sep">
-          <span class="fb-glab">对比</span>
-          <div class="chips">
-            <button type="button" class="chip" data-c="prev" title="与上一等长区间对比">环比</button>
-            <button type="button" class="chip" data-c="yoy" title="与去年同期同一区间对比">同比</button>
+          <div class="dd-sec">
+            <span class="dd-lb">趋势粒度</span>
+            <div class="chips">
+              ${GRAINS.map(g => `<button type="button" class="chip" data-g="${g.k}" title="${g.k === 'auto' ? '按区间长度自动选择' : ''}">${g.t}</button>`).join('')}
+            </div>
           </div>
-          <span class="fb-cmpnote" id="fbCmpNote"></span>
-        </div>
-        <div class="fb-right">
-          <span class="fbar-meta" id="fbarMeta"></span>
-          <button type="button" class="btn-reset" id="fbReset">重置</button>
-          <button type="button" class="fb-toggle" id="fbToggle">收起</button>
+          <div class="dd-sec">
+            <span class="dd-lb">对比口径</span>
+            <div class="chips">
+              <button type="button" class="chip" data-c="prev" title="与上一等长区间对比">环比</button>
+              <button type="button" class="chip" data-c="yoy" title="与去年同期同一区间对比">同比</button>
+            </div>
+            <span class="fb-cmpnote" id="fbCmpNote"></span>
+          </div>
         </div>
       </div>
 
-      <div class="fb-body">
-        <!-- 第 2 行：谁在播。班次是时间切片，主播是人，两者同级 -->
-        <div class="fb-row">
-          <div class="fb-g">
-            <span class="fb-glab">班次</span>
-            <div class="chips" id="chSh"></div>
-            <button type="button" class="fb-act" data-inv="sh" title="反选班次">反选</button>
-          </div>
-          <div class="fb-g sep grow">
-            <span class="fb-glab">主播</span>
-            <div class="chips scrolly" id="chAn"></div>
-            <button type="button" class="fb-act" data-inv="an" title="反选主播">反选</button>
-          </div>
+      <div class="dd" id="ddSh">
+        <button type="button" class="dd-btn" aria-haspopup="true">
+          <span class="lb">班次</span><span class="vl">全部</span><i class="ar">▾</i>
+        </button>
+        <div class="dd-pop">
+          <div class="dd-hd"><span class="dd-lb">按开播时间</span><button type="button" class="fb-act" data-inv="sh">反选</button></div>
+          <div class="chips" id="chSh"></div>
         </div>
+      </div>
 
-        <!-- 第 3 行：播的什么。店铺活动是「类型 › 活动名」父子结构，机制是直播间的另一套标记 -->
-        <div class="fb-row">
-          <div class="fb-g">
-            <span class="fb-glab">店铺活动</span>
+      <div class="dd" id="ddAn">
+        <button type="button" class="dd-btn" aria-haspopup="true">
+          <span class="lb">主播</span><span class="vl">全部</span><i class="ar">▾</i>
+        </button>
+        <div class="dd-pop">
+          <div class="dd-hd"><span class="dd-lb">出场主播</span><button type="button" class="fb-act" data-inv="an">反选</button></div>
+          <div class="chips" id="chAn"></div>
+        </div>
+      </div>
+
+      <div class="dd" id="ddAct">
+        <button type="button" class="dd-btn" aria-haspopup="true">
+          <span class="lb">店铺活动</span><span class="vl">全部</span><i class="ar">▾</i>
+        </button>
+        <div class="dd-pop wide">
+          <div class="dd-sec">
+            <div class="dd-hd"><span class="dd-lb">活动类型</span></div>
             <div class="chips" id="chRt"></div>
-            <span class="fb-arrow" aria-hidden="true">›</span>
-            <div class="chips" id="chRn"></div>
-            <button type="button" class="fb-act" data-inv="rn" title="反选活动名">反选</button>
           </div>
-          <div class="fb-g sep">
-            <span class="fb-glab">直播间机制</span>
-            <div class="chips" id="chMg"></div>
-            <button type="button" class="fb-act" data-inv="mg" title="反选机制">反选</button>
+          <div class="dd-sec">
+            <div class="dd-hd"><span class="dd-lb">活动名称</span><button type="button" class="fb-act" data-inv="rn">反选</button></div>
+            <div class="chips" id="chRn"></div>
           </div>
         </div>
+      </div>
+
+      <div class="dd" id="ddMg">
+        <button type="button" class="dd-btn" aria-haspopup="true">
+          <span class="lb">机制</span><span class="vl">全部</span><i class="ar">▾</i>
+        </button>
+        <div class="dd-pop">
+          <div class="dd-hd"><span class="dd-lb">直播间机制</span><button type="button" class="fb-act" data-inv="mg">反选</button></div>
+          <div class="chips" id="chMg"></div>
+        </div>
+      </div>
+
+      <div class="fb-right">
+        <span class="fbar-meta" id="fbarMeta"></span>
+        <button type="button" class="btn-reset" id="fbReset">重置</button>
       </div>
     </div>`;
 
     fb.querySelectorAll('.chip[data-p]').forEach(c => {
-      c.onclick = () => { const [a, b] = presetRange(c.dataset.p); setRange(a, b, c.dataset.p); };
+      c.onclick = () => { const [a, b] = presetRange(c.dataset.p); setRange(a, b, c.dataset.p); if (window.closeDD) window.closeDD(); };
     });
     fb.querySelectorAll('.chip[data-g]').forEach(c => {
-      c.onclick = () => setGrain(c.dataset.g);
+      c.onclick = () => { setGrain(c.dataset.g); if (window.closeDD) window.closeDD(); };
     });
     fb.querySelectorAll('.chip[data-c]').forEach(c => {
-      c.onclick = () => setCmp(c.dataset.c);
+      c.onclick = () => { setCmp(c.dataset.c); if (window.closeDD) window.closeDD(); };
     });
     fb.querySelectorAll('.fb-act[data-inv]').forEach(b => {
       b.onclick = () => dimInvert(b.dataset.inv);
@@ -770,10 +828,31 @@ function mountShell() {
         if (v === '') dimAll(k); else dimToggle(k, v);
       };
     });
-    const tg = document.getElementById('fbToggle');
-    if (tg) tg.onclick = () => { F.barCollapsed = !F.barCollapsed; syncBar(); };
+    /* 下拉面板：同一时刻只开一个；点面板内部不关闭（要连续多选），点外部或 Esc 关闭 */
+    const ddAll = () => [...fb.querySelectorAll('.dd')];
+    window.closeDD = () => ddAll().forEach(d => d.classList.remove('open'));
+    ddAll().forEach(dd => {
+      const btn = dd.querySelector('.dd-btn');
+      const pop = dd.querySelector('.dd-pop');
+      btn.onclick = e => {
+        e.stopPropagation();
+        const wasOpen = dd.classList.contains('open');
+        window.closeDD();
+        if (wasOpen) return;
+        dd.classList.add('open');
+        /* 靠近视口右缘时改为右对齐，避免面板被裁掉 */
+        pop.style.visibility = 'hidden';
+        const r = pop.getBoundingClientRect();
+        dd.classList.toggle('flip', r.right > window.innerWidth - 12);
+        pop.style.visibility = '';
+      };
+      pop.onclick = e => e.stopPropagation();
+    });
+    document.addEventListener('click', () => window.closeDD());
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') window.closeDD(); });
+
     const rs = document.getElementById('fbReset');
-    if (rs) rs.onclick = () => { F.grainPref = 'auto'; resetDims(); };
+    if (rs) rs.onclick = () => { F.grainPref = 'auto'; F.cmp = 'prev'; resetDims(); };
 
     const a = document.getElementById('dFrom'), b = document.getElementById('dTo');
     a.max = F.max; b.max = F.max; a.min = F.min; b.min = F.min;
