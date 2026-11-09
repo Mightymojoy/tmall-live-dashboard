@@ -62,7 +62,7 @@
   <div class="page-hd">
     <div>
       <h1>退款与流量</h1>
-      <p>全店发货与退货结构、直播流量漏斗与商品级退货定位</p>
+      <p>全店发货与退货结构、品类与商品级退货定位</p>
     </div>
     <div class="hd-right" id="hdRight"></div>
   </div>
@@ -93,28 +93,7 @@
 
   <section class="sec">
     <div class="sec-h">
-      <span class="idx">03</span><h2>直播流量漏斗</h2><em id="fnSub"></em>
-      <div class="right">区间合计，括号为该区间场均</div>
-    </div>
-    <div class="grid g2 start">
-      <div class="card">
-        <div class="card-hd"><h3>主漏斗：进人 → 成交</h3></div>
-        <div id="funnel1"></div>
-        <div class="note card-ft">加购与成交不是严格包含关系（存在未加购直接下单），「加购 → 成交」仅作量级参考。</div>
-      </div>
-      <div class="card">
-        <div class="card-hd"><h3>频道页进房</h3></div>
-        <div id="funnel2"></div>
-        <div class="legend card-ft" style="margin-top:2px;color:var(--ink-3)">关键转化率</div>
-        <div id="convList" class="card-ft"></div>
-        <div class="note card-ft" id="fnNote2"></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="sec">
-    <div class="sec-h">
-      <span class="idx">04</span><h2>品类结构</h2><em id="catSub"></em>
+      <span class="idx">02</span><h2>品类结构</h2><em id="catSub"></em>
       <div class="right">商品级数据来自单品退款表</div>
     </div>
     <div class="card flush"><div class="tbl-wrap"><table id="catTable"></table></div></div>
@@ -123,7 +102,7 @@
 
   <section class="sec">
     <div class="sec-h">
-      <span class="idx">05</span><h2>单品明细</h2><em id="goodsSub">按产品折叠 · 按发货金额排序</em>
+      <span class="idx">03</span><h2>单品明细</h2><em id="goodsSub">按产品折叠 · 按发货金额排序</em>
       <div class="right"><button class="tbtn" id="gToggle">展开全部</button></div>
     </div>
     <div class="card flush"><div class="tbl-wrap scroll"><table id="goodsTable"></table></div></div>
@@ -154,7 +133,6 @@ function renderAll() {
   renderShopKpi();
   renderScene();
   renderRR();
-  renderFunnel();
   renderCat();
   renderGoods();
   renderInsight();
@@ -269,43 +247,7 @@ function renderRR() {
       : '');
 }
 
-/* ---------------- 03 ---------------- */
-function renderFunnel() {
-  const n = F.roll.n || 1;
-  const s = k => calc.sum(F.sessions, k);
-  document.getElementById('fnSub').textContent = F.from + ' ~ ' + F.to + ' · ' + n + ' 场';
-
-  const steps1 = [
-    { lab: '观看人数', v: s('uv'), note: '场均 ' + fmt.int(s('uv') / n) + ' 人' },
-    { lab: '商品点击人数', v: s('gcp'), note: '场均 ' + fmt.int(s('gcp') / n) + ' 人' },
-    { lab: '加购人数', v: s('ac'), note: '场均 ' + fmt.int(s('ac') / n) + ' 人' },
-    { lab: '成交人数', v: s('bp'), note: '场均 ' + fmt.int(s('bp') / n) + ' 人' },
-  ];
-  document.getElementById('funnel1').innerHTML = funnelHtml(steps1, '#c9a962');
-
-  const steps2 = [
-    { lab: '频道页曝光人数', v: s('ep'), note: '场均 ' + fmt.int(s('ep') / n) + ' 人' },
-    { lab: '频道页点击人数', v: s('cp'), note: '曝光点击率 ' + fmt.pct(s('cp') / (s('ep') || 1), 1) },
-  ];
-  document.getElementById('funnel2').innerHTML = funnelHtml(steps2, '#3a5778');
-  const cpShare = s('cp') / (s('uv') || 1);
-
-  const conv = [
-    ['频道页曝光 → 点击', s('cp') / (s('ep') || 1)],
-    ['频道页点击占观看', cpShare],
-    ['观看 → 商品点击', s('gcp') / (s('uv') || 1)],
-    ['商品点击 → 加购', s('ac') / (s('gcp') || 1)],
-    ['加购 → 成交', s('bp') / (s('ac') || 1)],
-    ['观看 → 成交', s('bp') / (s('uv') || 1)],
-  ];
-  document.getElementById('convList').innerHTML = conv.map(([lab, v]) =>
-    '<div class="kvr"><span>' + lab + '</span><b>' + fmt.pct(v, 2) + '</b></div>').join('');
-
-  document.getElementById('fnNote2').innerHTML =
-    '频道页点击人数占全部观看人数的 <b>' + fmt.pct(cpShare, 2) + '</b>，进房主力不是频道页，而是推荐与关注。';
-}
-
-/* ---------------- 04 品类 ---------------- */
+/* ---------------- 03 品类 ---------------- */
 /* 退货率配色：整体约 12%，故按 8% / 14% 两档分色（原 25%/40% 是按退款率定的，已不适用） */
 function retColor(v) {
   if (v === null || v === undefined) return 'var(--ink-3)';
@@ -438,12 +380,6 @@ function renderInsight() {
     li.push('高退货产品（发货额 >50 万且退货率 >18%）：'
       + badTop.map(g => '<b>' + g.prod + '</b>（' + g.cat + '，' + fmt.pct(g.rate) + '）').join('、')
       + '。建议核对详情页尺码表、实物色差与包装防护。');
-  }
-
-  const uv = calc.sum(F.sessions, 'uv'), gcp = calc.sum(F.sessions, 'gcp'), bp = calc.sum(F.sessions, 'bp');
-  if (uv) {
-    li.push('直播观看 <b>' + fmt.money(uv) + '</b> 人次，商品点击率仅 <b>' + fmt.pct(gcp / uv, 2) + '</b>，成交转化 <b>'
-      + fmt.pct(bp / uv, 2) + '</b>。瓶颈在「看的人不点商品」这一环，优先优化讲解节奏与商品卡露出，而非继续放量。');
   }
 
   const topCat = [...new Set(F.goods.map(g => g.cat))].map(c => {
