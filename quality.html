@@ -7,15 +7,6 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%2317161a'/><rect x='12' y='12' width='8' height='8' fill='%23c9a962'/></svg>">
 <link rel="stylesheet" href="shared.css">
 <style>
-.gbar { display: flex; flex-direction: column; gap: 10px; }
-.gb-name {
-  font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; margin-bottom: 3px;
-}
-.gb-row { display: flex; align-items: center; gap: 8px; }
-.gb-track { flex: 1; height: 6px; background: var(--line-2); border-radius: 1px; overflow: hidden; }
-.gb-fill { height: 100%; border-radius: 1px; }
-.gb-val { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; font-weight: 600; }
 .kvr {
   display: flex; align-items: baseline; justify-content: space-between;
   font-size: 11.5px; padding: 5px 0; border-bottom: 1px dashed var(--line-2);
@@ -23,6 +14,44 @@
 .kvr:last-child { border-bottom: none; }
 .kvr span { color: var(--ink-2); }
 .kvr b { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* 单品明细：按产品折叠 */
+.tr-grp { cursor: pointer; background: rgba(23,22,26,.022); }
+.tr-grp:hover { background: rgba(201,169,98,.09); }
+.tr-grp td { border-bottom: 1px solid var(--line-2); font-weight: 600; }
+.tr-grp .car { display: inline-block; width: 12px; color: var(--gold-d); transition: transform .15s; transform: rotate(0deg); }
+.tr-grp.open .car { transform: rotate(90deg); }
+.tr-grp .pname { display: inline-flex; align-items: center; gap: 5px; }
+.tr-item td { background: transparent; }
+.tr-item td:first-child { color: var(--ink-3); }
+.tr-item .indent { padding-left: 22px; }
+.tr-item[hidden] { display: none; }
+.gsum { font-size: 11px; color: var(--ink-3); font-weight: 400; }
+.tbtn {
+  font: inherit; font-size: 11px; padding: 3px 9px; cursor: pointer;
+  border: 1px solid var(--line); background: #fff; color: var(--ink-2); border-radius: 2px;
+}
+.tbtn:hover { border-color: var(--gold); color: var(--gold-d); }
+.dash { color: var(--ink-3); }
+/* 两表定宽：table-layout:auto 会把「大类」列拉宽、数字列挤到右边，改成按比例固定 */
+#catTable { table-layout: fixed; }
+#catTable th:nth-child(1) { width: 20%; }
+#catTable th:nth-child(2) { width: 10%; }
+#catTable th:nth-child(3) { width: 18%; }
+#catTable th:nth-child(4) { width: 12%; }
+#catTable th:nth-child(5) { width: 20%; }
+#catTable th:nth-child(6) { width: 12%; }
+#goodsTable { table-layout: fixed; }
+#goodsTable th:nth-child(1) { width: 9%; }
+#goodsTable th:nth-child(2) { width: 13%; }
+#goodsTable th:nth-child(3) { width: 28%; }
+#goodsTable th:nth-child(4) { width: 14%; }
+#goodsTable th:nth-child(5) { width: 11%; }
+#goodsTable th:nth-child(6) { width: 8%; }
+#goodsTable th:nth-child(7) { width: 9%; }
+#goodsTable th:nth-child(8) { width: 8%; }
+#goodsTable td { overflow: hidden; }
+/* 8 列比原先 6 列高，滚动区放高一点，一屏能多看 3 行 */
+.tbl-wrap.scroll { max-height: 560px; }
 </style>
 </head>
 <body>
@@ -33,7 +62,7 @@
   <div class="page-hd">
     <div>
       <h1>退款与流量</h1>
-      <p>全店退款结构、直播流量漏斗与商品级退款定位</p>
+      <p>全店发货与退货结构、直播流量漏斗与商品级退货定位</p>
     </div>
     <div class="hd-right" id="hdRight"></div>
   </div>
@@ -43,7 +72,7 @@
       <span class="idx">01</span><h2>店铺退款概览</h2><em id="shopRange"></em>
       <div class="right">全店口径（不限直播）</div>
     </div>
-    <div class="grid g5" id="shopKpi"></div>
+    <div class="grid g4" id="shopKpi"></div>
     <div class="alert" id="crossCheck" style="margin-top:12px"></div>
   </section>
 
@@ -55,9 +84,9 @@
         <div class="legend card-ft" id="sceneLegend"></div>
       </div>
       <div class="card">
-        <div class="card-hd"><h3>全店退款率走势</h3><span id="rrSub"></span><div class="r" id="rrRight"></div></div>
+        <div class="card-hd"><h3>全店退货率走势</h3><span id="rrSub"></span><div class="r" id="rrRight"></div></div>
         <div id="rrChart" class="chart-wrap"></div>
-        <div class="note card-ft">退款率 = 退款金额 ÷ 支付金额，按订单支付日归集。</div>
+        <div class="note card-ft" id="rrNote">退货率 = 退货退款金额 ÷ 实际发货额，按订单支付日归集。不含未发货 / 在途 / 已收到货仅退款。</div>
       </div>
     </div>
   </section>
@@ -85,24 +114,20 @@
 
   <section class="sec">
     <div class="sec-h">
-      <span class="idx">04</span><h2>品类与商品退款</h2><em id="catSub"></em>
+      <span class="idx">04</span><h2>品类结构</h2><em id="catSub"></em>
       <div class="right">商品级数据来自单品退款表</div>
     </div>
-    <div class="grid g2 start">
-      <div class="card flush"><div class="tbl-wrap"><table id="catTable"></table></div></div>
-      <div class="card">
-        <div class="card-hd"><h3>TOP 商品退款率</h3><span>按支付金额前 10</span></div>
-        <div id="goodsBars" class="card-body"></div>
-      </div>
-    </div>
+    <div class="card flush"><div class="tbl-wrap"><table id="catTable"></table></div></div>
+    <div class="note" style="padding:10px 20px 0">发货金额 = 支付金额 − 未发货仅退款 − 在途仅退款 − 已收到货仅退款；退货率 = 退货退款金额 ÷ 发货金额。</div>
   </section>
 
   <section class="sec">
     <div class="sec-h">
-      <span class="idx">05</span><h2>单品明细</h2><em>按支付金额前 20</em>
-      <div class="right">可滚动查看</div>
+      <span class="idx">05</span><h2>单品明细</h2><em id="goodsSub">按产品折叠 · 按发货金额排序</em>
+      <div class="right"><button class="tbtn" id="gToggle">展开全部</button></div>
     </div>
     <div class="card flush"><div class="tbl-wrap scroll"><table id="goodsTable"></table></div></div>
+    <div class="note" style="padding:10px 20px 0" id="goodsNote"></div>
   </section>
 
   <section class="sec"><div class="insight" id="insight"></div></section>
@@ -110,7 +135,7 @@
 
 <div class="foot">
   <span id="footMeta"></span>
-  <span>发货额口径：支付金额 − 未发货仅退款 − 已收到货仅退款 − 在途仅退款</span>
+  <span>发货额 = 支付金额 − 未发货仅退款 − 已收到货仅退款 − 在途仅退款；退货率 = 退货退款总额 ÷ 发货额</span>
 </div>
 
 <script src="data.js"></script>
@@ -139,28 +164,35 @@ const shopSum = k => F.shop.reduce((t, x) => t + (x[k] || 0), 0);
 
 /* ---------------- 01 ---------------- */
 function renderShopKpi() {
-  const pay = shopSum('pay'), rf = shopSum('allRefund'), only = shopSum('onlyRefund');
+  const pay = shopSum('pay'), ret = shopSum('retRefund'), only = shopSum('onlyRefund');
   const ship = F.shipTotal;
+  const rate = ship ? ret / ship : null;
   document.getElementById('shopRange').textContent = F.from + ' ~ ' + F.to;
 
   const items = [
-    { lab: '支付金额', ...mm(pay), key: 1, sub: F.shop.length + ' 天 · 日均 ' + fmt.money(pay / (F.shop.length || 1)) + '元' },
-    { lab: '实际发货额', ...mm(ship), key: 1, sub: '占支付 ' + fmt.pct(ship / pay) },
-    { lab: '仅退款金额', ...mm(only), sub: '未发货 + 在途 + 已收货' },
-    { lab: '退款总额', ...mm(rf), sub: '含退货退款' },
-    { lab: '退款率', val: fmt.pct(rf / pay), unit: '', key: 1, sub: '退款 ÷ 支付' },
+    { lab: '支付金额', ...mm(pay), sub: F.shop.length + ' 天 · 日均 ' + fmt.money(pay / (F.shop.length || 1)) + '元' },
+    { lab: '实际发货额', ...mm(ship), sub: '占支付 ' + fmt.pct(ship / pay) },
+    { lab: '退货退款总额', ...mm(ret), sub: '占支付 ' + fmt.pct(ret / pay) },
+    { lab: '退货率', val: fmt.pct(rate), unit: '', key: 1, sub: '退货退款 ÷ 发货额' },
   ];
   function mm(v) { const [n, u] = fmt.mpart(v); return { val: n, unit: (u || '') + '元' }; }
   document.getElementById('shopKpi').innerHTML = kpiHtml(items);
 
-  /* 交叉校验：商品级 vs 店铺日级 */
+  /* 交叉校验：商品级 vs 店铺日级（支付 / 退货退款 两桶都要对上） */
   const gp = F.goods.reduce((t, g) => t + g.pay, 0);
-  const gr = F.goods.reduce((t, g) => t + g.refund, 0);
-  const diff = pay ? Math.abs(gp - pay) / pay : 0;
+  const gr = F.goods.reduce((t, g) => t + g.ret, 0);
+  const dp = pay ? Math.abs(gp - pay) / pay : 0;
+  const dr = ret ? Math.abs(gr - ret) / ret : 0;
   document.getElementById('crossCheck').innerHTML = '<span>✓</span><span>'
-    + '交叉校验：商品级支付合计 <b>' + fmt.money(gp) + '元</b>，店铺日级合计 <b>' + fmt.money(pay) + '元</b>，偏差 <b>'
-    + (diff * 100).toFixed(2) + '%</b> —— 两个独立数据源互证' + (diff < 0.01 ? '通过' : '存在差异，需排查') + '。'
-    + '本区间整体退款率 <b>' + fmt.pct(gr / gp) + '</b>，显著高于常规电商水平，对外引用前建议与天猫后台口径复核。</span>';
+    + '交叉校验：商品级支付 <b>' + fmt.money(gp) + '元</b> vs 店铺日级 <b>' + fmt.money(pay) + '元</b>，偏差 <b>'
+    + (dp * 100).toFixed(2) + '%</b>；商品级退货退款 <b>' + fmt.money(gr) + '元</b> vs 店铺日级 <b>'
+    + fmt.money(ret) + '元</b>，偏差 <b>' + (dr * 100).toFixed(2) + '%</b> —— 两个独立数据源互证'
+    + (dp < 0.01 && dr < 0.01 ? '通过' : '存在差异，需排查') + '。'
+    + '本区间仅退款（未发货 / 在途 / 已收货）合计 <b>' + fmt.money(only) + '元</b>，占支付 <b>'
+    + fmt.pct(only / pay) + '</b>，不计入退货率。'
+    + (F.shop.length <= 14
+      ? '<b style="color:var(--gold-d)">　区间仅 ' + F.shop.length + ' 天，退货大多还没发生，退货率会明显偏低，建议看近 30 天以上区间。</b>'
+      : '') + '</span>';
 }
 
 /* ---------------- 02 ---------------- */
@@ -198,25 +230,43 @@ function renderRR() {
   const grain = F.days <= 120 ? 'day' : 'week';
   const b = new Map();
   F.shop.forEach(x => {
-    if (!x.pay) return;
+    if (!x.ship) return;
     const k = grain === 'day' ? x.d : dU.weekStart(x.d);
-    const o = b.get(k) || { pay: 0, rf: 0 };
-    o.pay += x.pay; o.rf += (x.allRefund || 0);
+    const o = b.get(k) || { ship: 0, ret: 0 };
+    o.ship += x.ship; o.ret += (x.retRefund || 0);
     b.set(k, o);
   });
-  const rows = [...b.keys()].sort().map(k => ({ k, v: b.get(k).pay ? b.get(k).rf / b.get(k).pay : null }));
+  /* 退货率 = 退货退款 ÷ 发货额，按日/周重算分子分母，不做比率平均 */
+  const rows = [...b.keys()].sort()
+    .map(k => ({ k, v: b.get(k).ship ? b.get(k).ret / b.get(k).ship : null }))
+    .filter(r => r.v !== null);
   const avg = rows.length ? rows.reduce((t, r) => t + r.v, 0) / rows.length : null;
   document.getElementById('rrSub').textContent = (grain === 'day' ? '按日' : '按周') + ' · ' + rows.length + ' 点';
-  document.getElementById('rrRight').textContent = '区间 ' + fmt.pct(shopSum('allRefund') / (shopSum('pay') || 1));
+  const ret = shopSum('retRefund'), ship = F.shipTotal;
+  document.getElementById('rrRight').textContent = '区间 ' + fmt.pct(ship ? ret / ship : null);
 
   lineChart(document.getElementById('rrChart'), {
     height: 226,
     labels: rows.map(r => fmt.md(r.k)),
-    series: [{ name: '退款率', color: '#b3352c', data: rows.map(r => r.v), area: true, width: 1.6 }],
+    series: [{ name: '退货率', color: '#b3352c', data: rows.map(r => r.v), area: true, width: 1.6 }],
     yFmt: v => (v * 100).toFixed(0) + '%',
     maxXLabels: 10,
     avgLine: avg ? { value: avg, label: '均值 ' + fmt.pct(avg), color: '#b3352c' } : null,
   });
+
+  /* 退货退款发生在支付之后，末端几天还没退回来，曲线尾部必然偏低——
+     不说明会被读成「退货率突然改善」，这里用尾部 5 天与区间值对比自动提示 */
+  const last = F.shop.slice(-5);
+  const ls = last.reduce((t, x) => t + (x.ship || 0), 0);
+  const lr = last.reduce((t, x) => t + (x.retRefund || 0), 0);
+  const tail = ls ? lr / ls : null;
+  const base = ship ? ret / ship : null;
+  const note = document.getElementById('rrNote');
+  note.innerHTML = '退货率 = 退货退款金额 ÷ 实际发货额，按订单支付日归集。不含未发货 / 在途 / 已收到货仅退款。'
+    + (tail !== null && base && tail < base * 0.7
+      ? '<b style="color:var(--gold-d)">　区间末 5 天退货率仅 ' + fmt.pct(tail) + '（全区间 ' + fmt.pct(base)
+        + '），系退货尚未发生所致，不宜按「改善」解读。</b>'
+      : '');
 }
 
 /* ---------------- 03 ---------------- */
@@ -256,72 +306,138 @@ function renderFunnel() {
 }
 
 /* ---------------- 04 品类 ---------------- */
+/* 退货率配色：整体约 12%，故按 8% / 14% 两档分色（原 25%/40% 是按退款率定的，已不适用） */
+function retColor(v) {
+  if (v === null || v === undefined) return 'var(--ink-3)';
+  return v > 0.14 ? 'var(--red)' : v > 0.08 ? 'var(--gold-d)' : 'var(--green)';
+}
+
 function renderCat() {
   document.getElementById('catSub').textContent = F.from + ' ~ ' + F.to;
   const m = new Map();
   F.goods.forEach(g => {
     const k = g.cat || '未匹配';
-    const o = m.get(k) || { cat: k, pay: 0, rf: 0, n: 0 };
-    o.pay += g.pay; o.rf += g.refund; o.n++;
+    const o = m.get(k) || { cat: k, ship: 0, ret: 0, n: 0 };
+    o.ship += g.ship; o.ret += g.ret; o.n++;
     m.set(k, o);
   });
-  const rows = [...m.values()].sort((a, b) => b.pay - a.pay);
-  const tp = rows.reduce((t, x) => t + x.pay, 0);
+  const rows = [...m.values()].sort((a, b) => b.ship - a.ship);
+  const ts = rows.reduce((t, x) => t + x.ship, 0);
 
-  let html = '<thead><tr><th>大类</th><th>商品数</th><th>支付金额</th><th>占比</th><th>退款金额</th><th>退款率</th></tr></thead><tbody>';
+  let html = '<thead><tr><th>大类</th><th>商品数</th><th>发货金额</th><th>占比</th><th>退货退款金额</th><th>退货率</th></tr></thead><tbody>';
   rows.forEach(r => {
-    const rate = r.pay ? r.rf / r.pay : null;
-    const col = rate > 0.4 ? 'var(--red)' : rate > 0.25 ? 'var(--gold-d)' : 'var(--green)';
+    const rate = r.ship ? r.ret / r.ship : null;
     html += '<tr><td>' + r.cat + '</td><td class="num">' + r.n + '</td>'
-      + '<td class="num">' + fmt.money(r.pay) + '</td>'
-      + '<td class="num">' + fmt.pct(r.pay / tp) + '</td>'
-      + '<td class="num">' + fmt.money(r.rf) + '</td>'
-      + '<td class="num" style="color:' + col + ';font-weight:600">' + fmt.pct(rate) + '</td></tr>';
+      + '<td class="num">' + fmt.money(r.ship) + '</td>'
+      + '<td class="num">' + fmt.pct(r.ship / ts) + '</td>'
+      + '<td class="num">' + fmt.money(r.ret) + '</td>'
+      + '<td class="num" style="color:' + retColor(rate) + ';font-weight:600">' + fmt.pct(rate) + '</td></tr>';
   });
-  const t = rows.reduce((o, r) => ({ n: o.n + r.n, pay: o.pay + r.pay, rf: o.rf + r.rf }), { n: 0, pay: 0, rf: 0 });
-  html += '</tbody><tfoot><tr><td>合计</td><td class="num">' + t.n + '</td><td class="num">' + fmt.money(t.pay)
-    + '</td><td class="num">100%</td><td class="num">' + fmt.money(t.rf) + '</td>'
-    + '<td class="num">' + fmt.pct(t.rf / t.pay) + '</td></tr></tfoot>';
+  const t = rows.reduce((o, r) => ({ n: o.n + r.n, ship: o.ship + r.ship, ret: o.ret + r.ret }), { n: 0, ship: 0, ret: 0 });
+  html += '</tbody><tfoot><tr><td>合计</td><td class="num">' + t.n + '</td><td class="num">' + fmt.money(t.ship)
+    + '</td><td class="num">100%</td><td class="num">' + fmt.money(t.ret) + '</td>'
+    + '<td class="num">' + fmt.pct(t.ship ? t.ret / t.ship : null) + '</td></tr></tfoot>';
   document.getElementById('catTable').innerHTML = html;
 }
 
-function renderGoods() {
-  const top = F.goods.filter(g => g.pay > 0).slice(0, 10);
-  const mx = Math.max(...top.map(g => g.rate || 0), 0.01);
-  document.getElementById('goodsBars').innerHTML = '<div class="gbar">' + top.map(g => {
-    const rate = g.rate || 0;
-    const c = rate > 0.4 ? '#b3352c' : rate > 0.25 ? '#c9a962' : '#2c6b4c';
-    return '<div><div class="gb-name" title="' + g.name + '">' + g.name + '</div>'
-      + '<div class="gb-row"><div class="gb-track"><div class="gb-fill" style="width:'
-      + Math.max(rate / mx * 100, 2).toFixed(1) + '%;background:' + c + '"></div></div>'
-      + '<span class="gb-val" style="color:' + c + '">' + fmt.pct(rate) + '</span></div></div>';
-  }).join('') + '</div>';
+/* ---------------- 05 单品（按产品折叠） ---------------- */
+let gOpenAll = false;
 
-  let html = '<thead><tr><th>商品</th><th>大类</th><th>产品</th><th>支付金额</th><th>退款金额</th><th>退款率</th></tr></thead><tbody>';
-  if (!F.goods.length) html += '<tr><td colspan="6" style="text-align:center;color:#8b867d;padding:30px">所选区间内暂无单品数据</td></tr>';
-  F.goods.slice(0, 20).forEach(g => {
-    const rate = g.rate || 0;
-    html += '<tr><td class="name-cell" title="' + g.name + '">' + g.name + '</td>'
-      + '<td>' + g.cat + '</td><td>' + g.prod + '</td>'
-      + '<td class="num">' + fmt.money(g.pay) + '</td>'
-      + '<td class="num">' + fmt.money(g.refund) + '</td>'
-      + '<td class="num" style="color:' + (rate > 0.4 ? 'var(--red)' : 'var(--ink)') + ';font-weight:600">' + fmt.pct(rate) + '</td></tr>';
+function renderGoods() {
+  /* 不筛 ship>0：支付被仅退款吃光的商品也要留有行位，否则本表商品数与 04 品类表对不上 */
+  const rows = F.goods;
+  const byProd = new Map();
+  for (const g of rows) {
+    const k = g.prod || '未匹配';
+    if (!byProd.has(k)) byProd.set(k, []);
+    byProd.get(k).push(g);
+  }
+  /* 产品行取「发货额占比最大的大类」作代表，避免把 P2 TRUNK 这类跨大类的产品标错 */
+  const groups = [...byProd.entries()].map(([prod, arr]) => {
+    const ship = arr.reduce((t, x) => t + x.ship, 0);
+    const ret = arr.reduce((t, x) => t + x.ret, 0);
+    const catSum = {};
+    arr.forEach(x => { catSum[x.cat] = (catSum[x.cat] || 0) + x.ship; });
+    const cat = Object.keys(catSum).sort((a, b) => catSum[b] - catSum[a])[0] || '—';
+    arr.sort((a, b) => b.ship - a.ship);
+    return { prod, cat, n: arr.length, ship, ret, rate: ship ? ret / ship : null, items: arr };
+  }).sort((a, b) => b.ship - a.ship);
+
+  document.getElementById('goodsSub').textContent =
+    '按产品折叠 · 按发货金额排序 · ' + rows.length + ' 个商品 / ' + groups.length + ' 个产品';
+
+  let html = '<thead><tr><th>大类</th><th>产品</th><th>商品</th><th class="num">店铺发货金额</th>'
+    + '<th class="num">直播间金额</th><th class="num">渗透率</th>'
+    + '<th class="num">店铺退货率</th><th class="num">直播间退货率</th></tr></thead><tbody>';
+
+  if (!groups.length) {
+    html += '<tr><td colspan="8" style="text-align:center;color:#8b867d;padding:30px">所选区间内暂无单品数据</td></tr>';
+  }
+
+  groups.forEach((gr, gi) => {
+    html += '<tr class="tr-grp' + (gOpenAll ? ' open' : '') + '" data-g="' + gi + '">'
+      + '<td>' + gr.cat + '</td>'
+      + '<td><span class="pname"><span class="car">▸</span>' + gr.prod + '</span></td>'
+      + '<td class="gsum">' + gr.n + ' 个商品</td>'
+      + '<td class="num">' + fmt.money(gr.ship) + '</td>'
+      + '<td class="num dash">—</td><td class="num dash">—</td>'
+      + '<td class="num" style="color:' + retColor(gr.rate) + ';font-weight:600">' + fmt.pct(gr.rate) + '</td>'
+      + '<td class="num dash">—</td></tr>';
+
+    gr.items.forEach(g => {
+      html += '<tr class="tr-item" data-g="' + gi + '"' + (gOpenAll ? '' : ' hidden') + '>'
+        + '<td></td><td></td>'
+        + '<td class="name-cell indent" title="' + g.name + '">' + g.name + '</td>'
+        + '<td class="num">' + fmt.money(g.ship) + '</td>'
+        + '<td class="num dash">—</td><td class="num dash">—</td>'
+        + '<td class="num" style="color:' + retColor(g.rate) + ';font-weight:600">' + fmt.pct(g.rate) + '</td>'
+        + '<td class="num dash">—</td></tr>';
+    });
   });
   document.getElementById('goodsTable').innerHTML = html + '</tbody>';
+
+  /* 产品行点击展开 / 收起自己那一组 */
+  document.querySelectorAll('.tr-grp').forEach(tr => {
+    tr.onclick = () => {
+      const on = !tr.classList.contains('open');
+      tr.classList.toggle('open', on);
+      document.querySelectorAll('.tr-item[data-g="' + tr.dataset.g + '"]')
+        .forEach(x => { x.hidden = !on; });
+    };
+  });
+
+  const btn = document.getElementById('gToggle');
+  btn.textContent = gOpenAll ? '收起全部' : '展开全部';
+  btn.onclick = () => {
+    gOpenAll = !gOpenAll;
+    document.querySelectorAll('.tr-grp').forEach(tr => tr.classList.toggle('open', gOpenAll));
+    document.querySelectorAll('.tr-item').forEach(x => { x.hidden = !gOpenAll; });
+    btn.textContent = gOpenAll ? '收起全部' : '展开全部';
+  };
+
+  document.getElementById('goodsNote').innerHTML =
+    '<b>直播间金额 / 渗透率 / 直播间退货率暂缺</b>：现有「订单数据」只覆盖 25 个商品、区间支付 703 万元，'
+    + '而其合计为同期场次 GMV 的 192%，两套口径未对齐，直接当分子会把渗透率算高一倍。'
+    + '需运营按「商品ID + 子订单ID + 场次ID + 支付时间 + 支付金额 + 退款金额 + 退款场景」重导全量直播间成交明细后补齐这三列。';
 }
 
 /* ---------------- 06 ---------------- */
 function renderInsight() {
-  const pay = shopSum('pay'), rf = shopSum('allRefund'), only = shopSum('onlyRefund');
+  const pay = shopSum('pay'), ret = shopSum('retRefund'), only = shopSum('onlyRefund');
+  const ship = F.shipTotal;
   const li = [];
-  li.push('本区间全店退款率 <b>' + fmt.pct(rf / pay) + '</b>，其中「仅退款」类占退款总额 <b>' + fmt.pct(only / rf)
-    + '</b>。这部分在发货前或途中即可拦截，是压降退款最直接的抓手。');
+  li.push('本区间全店退货率 <b>' + fmt.pct(ship ? ret / ship : null) + '</b>（退货退款 ' + fmt.money(ret)
+    + '元 ÷ 发货 ' + fmt.money(ship) + '元）。另有仅退款（未发货 / 在途 / 已收到货）<b>' + fmt.money(only)
+    + '元</b>，占支付 <b>' + fmt.pct(only / pay) + '</b>，这部分发生在发货前后、不进退货率，'
+    + '却是发货额只有支付 <b>' + fmt.pct(ship / pay) + '</b> 的主因。');
 
-  const bad = F.goods.filter(g => g.pay > 50000 && (g.rate || 0) > 0.35).slice(0, 3);
-  if (bad.length) {
-    li.push('高退款商品（支付额 >5 万且退款率 >35%）：'
-      + bad.map(g => '<b>' + g.name.slice(0, 16) + '</b>（' + fmt.pct(g.rate) + '）').join('、')
-      + '。建议核对详情页尺码表与实物色差。');
+  const bad = F.goods.filter(g => g.ship > 500000 && (g.rate || 0) > 0.18);
+  const seenProd = new Set();
+  const badTop = bad.filter(g => { if (seenProd.has(g.prod)) return false; seenProd.add(g.prod); return true; }).slice(0, 3);
+  if (badTop.length) {
+    li.push('高退货产品（发货额 >50 万且退货率 >18%）：'
+      + badTop.map(g => '<b>' + g.prod + '</b>（' + g.cat + '，' + fmt.pct(g.rate) + '）').join('、')
+      + '。建议核对详情页尺码表、实物色差与包装防护。');
   }
 
   const uv = calc.sum(F.sessions, 'uv'), gcp = calc.sum(F.sessions, 'gcp'), bp = calc.sum(F.sessions, 'bp');
@@ -332,16 +448,16 @@ function renderInsight() {
 
   const topCat = [...new Set(F.goods.map(g => g.cat))].map(c => {
     const arr = F.goods.filter(g => g.cat === c);
-    return { c, pay: arr.reduce((t, g) => t + g.pay, 0), rf: arr.reduce((t, g) => t + g.refund, 0) };
-  }).sort((a, b) => b.pay - a.pay)[0];
+    return { c, ship: arr.reduce((t, g) => t + g.ship, 0), ret: arr.reduce((t, g) => t + g.ret, 0) };
+  }).sort((a, b) => b.ship - a.ship)[0];
   if (topCat) {
-    li.push('最大品类是 <b>' + topCat.c + '</b>（支付 ' + fmt.money(topCat.pay) + '元），其退款率 <b>'
-      + fmt.pct(topCat.rf / topCat.pay) + '</b>，是退款大盘的主要影响因素。');
+    li.push('最大品类是 <b>' + topCat.c + '</b>（发货 ' + fmt.money(topCat.ship) + '元），其退货率 <b>'
+      + fmt.pct(topCat.ship ? topCat.ret / topCat.ship : null) + '</b>，是退货大盘的主要影响因素。');
   }
 
   document.getElementById('insight').innerHTML =
     '<h3>退款与流量结论</h3><ol>' + li.map(x => '<li>' + x + '</li>').join('') + '</ol>'
-    + '<div class="src">退款率 = 退款金额 ÷ 支付金额；商品级与店铺日级两套独立数据已交叉校验。</div>';
+    + '<div class="src">退货率 = 退货退款金额 ÷ 实际发货额；实际发货额 = 支付金额 − 未发货仅退款 − 在途仅退款 − 已收到货仅退款。商品级与店铺日级两套独立数据已交叉校验。</div>';
 }
 
 onResize(() => { renderRR(); });

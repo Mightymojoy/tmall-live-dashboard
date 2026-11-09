@@ -140,14 +140,14 @@ async function loadData() {
   D.shopAll = j.shopDaily;
   D.shopMap = new Map(j.shopDaily.map(x => [x.d, x]));
 
-  /* 商品：元数据 + 商品×日 展开 */
+  /* 商品：元数据 + 商品×日 展开（步长 4：索引 / 支付 / 仅退款 / 退货退款） */
   D.goodsMeta = j.goodsMeta.map(([id, name, cat, prod]) => ({ id, name, cat, prod }));
   D.shopDates = Object.keys(j.gd).sort();
   D.goodsDaily = [];
   for (const d of D.shopDates) {
     const arr = j.gd[d];
-    for (let i = 0; i < arr.length; i += 3) {
-      D.goodsDaily.push({ d, gi: arr[i], pay: arr[i + 1], rf: arr[i + 2] });
+    for (let i = 0; i < arr.length; i += 4) {
+      D.goodsDaily.push({ d, gi: arr[i], pay: arr[i + 1], only: arr[i + 2], ret: arr[i + 3] });
     }
   }
 
@@ -308,17 +308,22 @@ function aggGoods(from, to) {
   for (const r of D.goodsDaily) {
     if (r.d < from || r.d > to) continue;
     const g = m.get(r.gi);
-    if (g) { g.pay += r.pay; g.rf += r.rf; }
-    else m.set(r.gi, { gi: r.gi, pay: r.pay, rf: r.rf });
+    if (g) { g.pay += r.pay; g.only += r.only; g.ret += r.ret; }
+    else m.set(r.gi, { gi: r.gi, pay: r.pay, only: r.only, ret: r.ret });
   }
   const out = [...m.values()].map(g => {
     const meta = D.goodsMeta[g.gi] || { name: '—', cat: '未匹配', prod: '未匹配' };
+    /* 发货 = 支付 − 仅退款（三个仅退款场景）；退货率 = 退货退款 ÷ 发货。
+       源表偶有「仅有退款、无支付」的残行，已在上游剔除，这里再兜一次底不出现负数 */
+    const ship = Math.max(g.pay - g.only, 0);
     return {
       i: g.gi, name: meta.name, cat: meta.cat, prod: meta.prod,
-      pay: g.pay, refund: g.rf, rate: g.pay ? g.rf / g.pay : null,
+      pay: g.pay, only: g.only, ship, ret: g.ret,
+      rate: ship ? g.ret / ship : null,
+      retRate: ship ? g.ret / ship : null,
     };
   });
-  out.sort((a, b) => b.pay - a.pay);
+  out.sort((a, b) => b.ship - a.ship);
   return out;
 }
 

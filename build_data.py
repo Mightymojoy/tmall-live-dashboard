@@ -4,11 +4,18 @@
 输入：直播字段.xlsx（天猫后台导出）+ 10-11月天猫排班表.xlsx（主播排班）
 输出：data.json / data.js（看板唯一数据源）
 
-口径（依据老大 2026-11-04 指定）：
+口径（依据老大 2026-11-04 指定 / 2026-11-09 修订）：
   店铺发货金额 = 支付金额(全部) - 未发货仅退款 - 已收到货仅退款 - 在途仅退款
   （三个仅退款场景取其【退款金额】列；"支付金额"列在各场景恒等于当日全店支付总额，
     直接相减会得负数，故只减退款金额）
-  直播渗透率 = 当日直播成交金额 / 当日店铺发货金额
+  退货退款总额 = 退款场景「退货退款」的退款金额（不含三个仅退款场景）
+  退货率       = 退货退款总额 / 店铺发货金额
+  直播渗透率   = 当日直播成交金额 / 当日店铺发货金额
+
+  2026-11-09 修订：原先「退款金额」把四个场景一锅端，页面显示 61.9%（退款÷支付）。
+  老大要求区分「仅退款」与「退货退款」，退货率只看退货退款。故单品日级由
+  [商品索引, 支付, 退款] 扩为 [商品索引, 支付, 仅退款, 退货退款]，四场景分桶存储，
+  前端可自行组合。体积增加约 1/3，换来口径可分。
 
 数据体积控制：
   场次表只保留前端实际用到的字段；单品明细按「商品 × 日」压缩存储（gd），
@@ -354,24 +361,45 @@ def main():
             'd': d,
             'pay': r0(pay),
             'onlyRefund': r0(rec['onlyRefund']),
+            'retRefund': r0(rec['scenes'].get('退货退款', 0.0)),
             'allRefund': r0(rec['allRefund']),
             'ship': r0(ship),
             'scenes': {k: r0(v) for k, v in rec['scenes'].items() if v},
         })
 
     # ---------- 单品退款：商品维度 + 商品×日 ----------
-    goods = {}
+    # 一次遍历把五类场景分到三个桶：
+    #   pay  = 场景「全部」的支付金额（各场景行的支付金额是该商品的重复值，只取「全部」）
+    #   only = 三个「仅退款」场景的退款金额（未发货 / 在途 / 已收到货）
+    #   ret  = 场景「退货退款」的退款金额
+    # 只有出现过「全部」行的 (日, 商品) 才落库——没有支付行的纯退款记录会让
+    # 发货金额算成负数，属源表残行，直接剔除。
+    cell = {}
+    names = {}
     for r in wb['退款数据源-单品'].iter_rows(min_row=2, values_only=True):
         if not r[2]:
             continue
-        scene = str(r[5]).strip() if r[5] else ''
-        if scene != '全部':
-            continue
         pid = str(r[2]).strip()
-        g = goods.setdefault(pid, {'name': (str(r[3]).strip() if r[3] else '')[:40],
-                                   'pay': 0.0, 'refund': 0.0})
-        g['pay'] += (f(r[7]) or 0.0)
-        g['refund'] += (f(r[9]) or 0.0)
+        scene = str(r[5]).strip() if r[5] else ''
+        d = dstr(r[0])
+        c = cell.setdefault((d, pid), {'pay': 0.0, 'only': 0.0, 'ret': 0.0})
+        if scene == '全部':
+            c['pay'] += (f(r[7]) or 0.0)
+            if pid not in names:
+                names[pid] = (str(r[3]).strip() if r[3] else '')[:40]
+        elif scene == '退货退款':
+            c['ret'] += (f(r[9]) or 0.0)
+        elif scene in ONLY_REFUND_SCENES:
+            c['only'] += (f(r[9]) or 0.0)
+
+    goods = {}
+    for (d, pid), c in cell.items():
+        if c['pay'] <= 0:
+            continue
+        g = goods.setdefault(pid, {'pay': 0.0, 'only': 0.0, 'ret': 0.0})
+        g['pay'] += c['pay']
+        g['only'] += c['only']
+        g['ret'] += c['ret']
 
     match = {}
     for r in wb['商品匹配关系'].iter_rows(min_row=2, values_only=True):
@@ -388,24 +416,17 @@ def main():
     goods_meta = []
     for pid in order:
         m = match.get(pid, {})
-        goods_meta.append([pid, goods[pid]['name'], m.get('cat') or '未匹配', m.get('prod') or '未匹配'])
+        goods_meta.append([pid, names.get(pid, ''), m.get('cat') or '未匹配', m.get('prod') or '未匹配'])
 
+    # 商品×日：[索引, 支付, 仅退款, 退货退款]，步长 4
     gd = {}
-    for r in wb['退款数据源-单品'].iter_rows(min_row=2, values_only=True):
-        if not r[2]:
+    for (d, pid), c in cell.items():
+        if c['pay'] <= 0:
             continue
-        if str(r[5]).strip() != '全部':
-            continue
-        pid = str(r[2]).strip()
         i = gidx.get(pid)
         if i is None:
             continue
-        d = dstr(r[0])
-        arr = gd.setdefault(d, [])
-        pay = round(f(r[7]) or 0.0, 1)
-        ref = round(f(r[9]) or 0.0, 1)
-        if pay or ref:
-            arr.extend([i, pay, ref])
+        gd.setdefault(d, []).extend([i, round(c['pay'], 1), round(c['only'], 1), round(c['ret'], 1)])
 
     anchors = sorted({s['an'] for s in sessions if s['an']})
     with_anchor = [s for s in sessions if s['an']]
