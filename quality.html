@@ -307,8 +307,17 @@ function renderGoods() {
     const catSum = {};
     arr.forEach(x => { catSum[x.cat] = (catSum[x.cat] || 0) + x.ship; });
     const cat = Object.keys(catSum).sort((a, b) => catSum[b] - catSum[a])[0] || '—';
+    /* 直播间退货率按金额重新汇总，不能拿商品零售退率做简单平均。
+       分子分母都是已校准的金额（分子＝订单退货退款×k，分母＝直播金额×店铺发货率） */
+    const lRetAmt = hasL.reduce((t, x) => t + (x.liveRetAmt || 0), 0);
+    const lShip = hasL.reduce((t, x) => t + (x.liveShipL || 0), 0);
     arr.sort((a, b) => b.ship - a.ship);
-    return { prod, cat, n: arr.length, ship, ret, rate: ship ? ret / ship : null, live, liveShip, pen, items: arr };
+    return {
+      prod, cat, n: arr.length, ship, ret, rate: ship ? ret / ship : null,
+      live, liveShip, pen, items: arr,
+      lRetAmt, lShip,
+      liveRate: hasL.length && lShip > 0 ? lRetAmt / lShip : null,
+    };
   }).sort((a, b) => b.ship - a.ship);
 
   const k = F.goods.liveK;
@@ -336,7 +345,9 @@ function renderGoods() {
         + fmt.money(gr.liveShip) + ' = ' + fmt.pct(gr.pen) + '；该产品全部发货 ' + fmt.money(gr.ship)
         + '，其中 ' + fmt.pct(gr.liveShip / (gr.ship || 1)) + ' 有直播明细')
       + '<td class="num" style="color:' + retColor(gr.rate) + ';font-weight:600">' + fmt.pct(gr.rate) + '</td>'
-      + '<td class="num dash" title="订单明细缺「退款场景」字段，无法把退货退款从仅退款里拆出来">—</td></tr>';
+      + liveRetCell(gr.liveRate, gr.liveRate === null ? '' : '直播间退货退款 ' + fmt.money(gr.lRetAmt)
+        + ' ÷ 直播间发货 ' + fmt.money(gr.lShip) + '（直播金额 × 店铺发货率）= ' + fmt.pct(gr.liveRate))
+      + '</tr>';
 
     gr.items.forEach(g => {
       html += '<tr class="tr-item" data-g="' + gi + '"' + (gOpenAll ? '' : ' hidden') + '>'
@@ -347,7 +358,11 @@ function renderGoods() {
         + pctCell(g.pen, g.live === null ? '' : '直播间金额 ' + fmt.money(g.live) + ' ÷ 店铺发货 '
           + fmt.money(g.liveShip) + ' = ' + fmt.pct(g.pen))
         + '<td class="num" style="color:' + retColor(g.rate) + ';font-weight:600">' + fmt.pct(g.rate) + '</td>'
-        + '<td class="num dash" title="订单明细缺「退款场景」字段，无法把退货退款从仅退款里拆出来">—</td></tr>';
+        + liveRetCell(g.liveRetRate, g.liveRetRate === null ? '' : '直播间退货退款 ' + fmt.money(g.liveRetAmt)
+          + '（订单退货退款 ' + fmt.money(g.liveRfRet) + ' × 校准系数 ' + (F.goods.liveK || 0).toFixed(3)
+          + '）÷ 直播间发货 ' + fmt.money(g.liveShipL) + '（直播金额 ' + fmt.money(g.live)
+          + ' × 店铺发货率）= ' + fmt.pct(g.liveRetRate))
+        + '</tr>';
     });
   });
   document.getElementById('goodsTable').innerHTML = html + '</tbody>';
@@ -385,6 +400,13 @@ function pctCell(v, title) {
     + ' style="color:' + col + ';font-weight:600">' + fmt.pct(v) + '</td>';
 }
 
+/* 直播间退货率单独走配色：退货率越低越好，不能沿用渗透率那套「越高越金」 */
+function liveRetCell(v, title) {
+  if (v === null || v === undefined) return '<td class="num dash">—</td>';
+  return '<td class="num"' + (title ? ' title="' + title + '"' : '')
+    + ' style="color:' + retColor(v) + ';font-weight:600">' + fmt.pct(v) + '</td>';
+}
+
 /* 单品明细表下说明：把校准法讲透，避免被当成「直接拿订单金额 / 店铺发货」 */
 function goodsNoteHtml(k, lf, lt, rows) {
   const lg = D.liveMeta || {};
@@ -410,9 +432,33 @@ function goodsNoteHtml(k, lf, lt, rows) {
   s += '<br><b>渗透率</b> = 直播间金额 ÷ 店铺发货额，分母只含有归因明细的 ' + nL + ' 个商品'
     + '（占本表 ' + rows.length + ' 个商品的 ' + fmt.pct(nL / (rows.length || 1)) + '），'
     + '其余商品没有直播明细，显示「—」而不是 0。';
-  s += '<br><b>直播间退货率仍缺数据</b>：订单明细只有「退款金额」、没有「退款场景」，'
-    + '2,532 行退款记录里仅 182 行（7.2%）带确认收货时间，拆不出「退货退款」与「仅退款」。'
-    + '补这一个字段就能算，另两列已可用。';
+  const lmeta = D.liveMeta || {};
+  s += '<br><b>直播间退货率</b> = 直播间退货退款 ÷ 直播间发货额。<br>'
+    + '<b>分子</b>：订单明细的真实退货退款额 × 校准系数 ' + k.toFixed(3) + '（与「直播间金额」同尺度）。'
+    + '订单明细只记退款金额、不记退款场景，场景结构取自「退款数据源-单品」<b>同商品同支付日</b>的'
+    + ' 退货退款 ÷（退货退款 + 仅退款）占比再乘回去（该表时间类型为「订单支付时间」，与订单明细按支付日归因同源）'
+    + (lmeta.retCover ? '；全部 ' + fmt.pct(lmeta.retCover) + ' 的退款额都取到了同日同商品的场景记录' : '') + '。<br>'
+    + '<b>分母</b>：不能直接用「订单支付 − 订单退款」。订单明细的退款记录并不完整——'
+    + '它能对上店铺同商品退货退款的 18.1%、仅退款的却只有 10.9%，两类不成比例，'
+    + '说明仅退款漏记较多；直接用会让分母虚高、退货率被压低近一半（实测 8.7%，店铺同商品 14.7%）。'
+    + '故分母改按「直播金额 × 店铺同商品发货率」折算。<br>'
+    + '<b>局限</b>：一是场景结构与发货率都是借店铺同商品的值、不是逐单标签，量级可信、小数位不可当精确值；'
+    + '二是退款按支付日归因，越靠近截止日未退完的越多，选最近几天时这一列会系统性偏低。';
+  /* 右删失提示：只差几天时单日退货率可能接近 0，不提示会被当成「又没数据」 */
+  const gap = lmeta.to && lt ? Math.round((new Date(lmeta.to) - new Date(lt)) / 86400000) : 9;
+  if (gap >= 0 && gap < 7) {
+    s += '<br><b>注意：区间末日 ' + lt + ' 距明细截止 ' + lmeta.to + ' 只有 ' + gap + ' 天</b>，'
+      + '这段时间支付的订单大多还没走完退货流程，直播间退货率会明显偏低（单日可能接近 0），'
+      + '看水平请用整月或更长区间。';
+  }
+  /* 口径差必须写在明面上：两列的分子分母来源都不同，比大小会得出错误结论 */
+  const shopPay = rows.reduce((t, g) => t + (g.pay || 0), 0);
+  if (shopPay > 0 && ordPay > 0) {
+    s += '<br><b>本列与左侧「店铺退货率」是两套不同池子的数据，不可直接比大小</b>：'
+      + '左边是该商品店铺全渠道；本列只覆盖订单明细里的场次关联订单，其支付额 ' + fmt.money(ordPay)
+      + ' 为本表商品店铺支付 ' + fmt.money(shopPay) + ' 的 ' + fmt.pct(ordPay / shopPay)
+      + '。两列同时看趋势可以，落到具体百分点要记住上游样本不同。';
+  }
   return s;
 }
 

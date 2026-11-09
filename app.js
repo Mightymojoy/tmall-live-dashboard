@@ -158,7 +158,7 @@ async function loadData() {
   for (const d of Object.keys(j.liveDaily || {}).sort()) {
     const arr = j.liveDaily[d];
     for (let i = 0; i < arr.length; i += 4) {
-      D.liveDaily.push({ d, gi: arr[i], pay: arr[i + 1], rf: arr[i + 2], rfShip: arr[i + 3] });
+      D.liveDaily.push({ d, gi: arr[i], pay: arr[i + 1], rf: arr[i + 2], rfRet: arr[i + 3] });
     }
   }
 
@@ -341,15 +341,16 @@ function aggGoods(from, to) {
     }
   }
 
-  /* 订单侧：窗口内按商品的支付额，以及窗口合计（用于求校准系数） */
+  /* 订单侧：窗口内按商品的支付额、退款额、其中退货退款（场景结构拆分值）
+     以及窗口合计（用于求校准系数） */
   const lm = new Map();
   let ordPay = 0;
   if (hasLive) {
     for (const r of D.liveDaily) {
       if (r.d < wf || r.d > wt) continue;
       const o = lm.get(r.gi);
-      if (o) { o.pay += r.pay; o.rf += r.rf; o.rfShip += r.rfShip; }
-      else lm.set(r.gi, { pay: r.pay, rf: r.rf, rfShip: r.rfShip });
+      if (o) { o.pay += r.pay; o.rf += r.rf; o.rfRet += r.rfRet; }
+      else lm.set(r.gi, { pay: r.pay, rf: r.rf, rfRet: r.rfRet });
       ordPay += r.pay;
     }
   }
@@ -370,6 +371,15 @@ function aggGoods(from, to) {
     const shipW = Math.max(gw.pay - gw.only, 0);
     const o = lm.get(g.gi) || null;
     const liveAmt = o && k ? o.pay * k : null;
+    /* 直播间退货率：分子用订单明细的真实退货退款（×k 与直播间金额同尺度），
+       分母【不能】用「订单支付 − 订单退款」——订单明细的退款记录不完整：
+       它的退货退款能对上店铺同商品的 18.1%，仅退款只有 10.9%，两类不成比例，
+       直接用会把仅退款漏掉一半、分母虚高、退货率被压低近一半（实测 8.7% vs 店铺 14.7%）。
+       故分母改按店铺同商品的发货率折算：直播金额 ×（店铺发货 ÷ 店铺支付）。 */
+    const shipRate = gw.pay > 0 ? shipW / gw.pay : null;
+    const liveShipL = liveAmt !== null && shipRate !== null ? liveAmt * shipRate : 0;
+    const liveRetAmt = o && k ? o.rfRet * k : null;
+    const liveRetRate = liveRetAmt !== null && liveShipL > 0 ? liveRetAmt / liveShipL : null;
     return {
       i: g.gi, name: meta.name, cat: meta.cat, prod: meta.prod,
       pay: g.pay, only: g.only, ship, ret: g.ret,
@@ -381,7 +391,10 @@ function aggGoods(from, to) {
       pen: liveAmt !== null && shipW > 0 ? liveAmt / shipW : null,
       liveOrd: o ? o.pay : null,
       liveRf: o ? o.rf : null,
-      liveRfShip: o ? o.rfShip : null,
+      liveRfRet: o ? o.rfRet : null,
+      liveShipL,
+      liveRetAmt,
+      liveRetRate,
     };
   });
   out.sort((a, b) => b.ship - a.ship);
