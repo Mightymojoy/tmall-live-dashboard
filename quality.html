@@ -335,30 +335,33 @@ function renderGoods() {
   }
 
   groups.forEach((gr, gi) => {
+    /* 整组都无归因明细（如达播）时，三列的「—」要能自解释，否则每次都要人工解释一遍 */
+    const nd = gr.live === null ? NO_DETAIL : '';
     html += '<tr class="tr-grp' + (gOpenAll ? ' open' : '') + '" data-g="' + gi + '">'
       + '<td>' + gr.cat + '</td>'
       + '<td><span class="pname"><span class="car">▸</span>' + gr.prod + '</span></td>'
       + '<td class="gsum">' + gr.n + ' 个商品</td>'
       + '<td class="num">' + fmt.money(gr.ship) + '</td>'
-      + numCell(gr.live)
-      + pctCell(gr.pen, gr.live === null ? '' : '直播间金额 ' + fmt.money(gr.live) + ' ÷ 有明细商品发货 '
+      + numCell(gr.live, nd)
+      + pctCell(gr.pen, gr.pen === null ? nd : '直播间金额 ' + fmt.money(gr.live) + ' ÷ 有明细商品发货 '
         + fmt.money(gr.liveShip) + ' = ' + fmt.pct(gr.pen) + '；该产品全部发货 ' + fmt.money(gr.ship)
         + '，其中 ' + fmt.pct(gr.liveShip / (gr.ship || 1)) + ' 有直播明细')
       + '<td class="num" style="color:' + retColor(gr.rate) + ';font-weight:600">' + fmt.pct(gr.rate) + '</td>'
-      + liveRetCell(gr.liveRate, gr.liveRate === null ? '' : '直播间退货退款 ' + fmt.money(gr.lRetAmt)
+      + liveRetCell(gr.liveRate, gr.liveRate === null ? nd : '直播间退货退款 ' + fmt.money(gr.lRetAmt)
         + ' ÷ 直播间发货 ' + fmt.money(gr.lShip) + '（直播金额 × 店铺发货率）= ' + fmt.pct(gr.liveRate))
       + '</tr>';
 
     gr.items.forEach(g => {
+      const ndi = g.live === null ? NO_DETAIL : '';
       html += '<tr class="tr-item" data-g="' + gi + '"' + (gOpenAll ? '' : ' hidden') + '>'
         + '<td></td><td></td>'
         + '<td class="name-cell indent" title="' + g.name + '">' + g.name + '</td>'
         + '<td class="num">' + fmt.money(g.ship) + '</td>'
-        + numCell(g.live)
-        + pctCell(g.pen, g.live === null ? '' : '直播间金额 ' + fmt.money(g.live) + ' ÷ 店铺发货 '
+        + numCell(g.live, ndi)
+        + pctCell(g.pen, g.pen === null ? ndi : '直播间金额 ' + fmt.money(g.live) + ' ÷ 店铺发货 '
           + fmt.money(g.liveShip) + ' = ' + fmt.pct(g.pen))
         + '<td class="num" style="color:' + retColor(g.rate) + ';font-weight:600">' + fmt.pct(g.rate) + '</td>'
-        + liveRetCell(g.liveRetRate, g.liveRetRate === null ? '' : '直播间退货退款 ' + fmt.money(g.liveRetAmt)
+        + liveRetCell(g.liveRetRate, g.liveRetRate === null ? ndi : '直播间退货退款 ' + fmt.money(g.liveRetAmt)
           + '（订单退货退款 ' + fmt.money(g.liveRfRet) + ' × 校准系数 ' + (F.goods.liveK || 0).toFixed(3)
           + '）÷ 直播间发货 ' + fmt.money(g.liveShipL) + '（直播金额 ' + fmt.money(g.live)
           + ' × 店铺发货率）= ' + fmt.pct(g.liveRetRate))
@@ -387,14 +390,19 @@ function renderGoods() {
   };
 }
 
-/* 直播间三列的空值渲染：null 一律显示「—」，不能当 0 */
-function numCell(v) {
+/* 直播间三列的空值渲染：null 一律显示「—」，不能当 0。
+   title 在空值时也要挂上——空值最需要解释，鼠标一放就知道是没归因还是真没卖 */
+const NO_DETAIL = '在订单明细里没有成交记录。订单明细只覆盖自播场次的 26 个商品，'
+  + '达播（达人合作）等场次不在源表导出范围——不是没卖，是拿不到直播归因。';
+function numCell(v, title) {
   return v === null || v === undefined
-    ? '<td class="num dash">—</td>'
+    ? '<td class="num dash"' + (title ? ' title="' + title + '"' : '') + '>—</td>'
     : '<td class="num">' + fmt.money(v) + '</td>';
 }
 function pctCell(v, title) {
-  if (v === null || v === undefined) return '<td class="num dash">—</td>';
+  if (v === null || v === undefined) {
+    return '<td class="num dash"' + (title ? ' title="' + title + '"' : '') + '>—</td>';
+  }
   const col = v >= 0.5 ? 'var(--gold-d)' : 'var(--ink)';
   return '<td class="num"' + (title ? ' title="' + title + '"' : '')
     + ' style="color:' + col + ';font-weight:600">' + fmt.pct(v) + '</td>';
@@ -402,7 +410,9 @@ function pctCell(v, title) {
 
 /* 直播间退货率单独走配色：退货率越低越好，不能沿用渗透率那套「越高越金」 */
 function liveRetCell(v, title) {
-  if (v === null || v === undefined) return '<td class="num dash">—</td>';
+  if (v === null || v === undefined) {
+    return '<td class="num dash"' + (title ? ' title="' + title + '"' : '') + '>—</td>';
+  }
   return '<td class="num"' + (title ? ' title="' + title + '"' : '')
     + ' style="color:' + retColor(v) + ';font-weight:600">' + fmt.pct(v) + '</td>';
 }
@@ -450,6 +460,15 @@ function goodsNoteHtml(k, lf, lt, rows) {
     s += '<br><b>注意：区间末日 ' + lt + ' 距明细截止 ' + lmeta.to + ' 只有 ' + gap + ' 天</b>，'
       + '这段时间支付的订单大多还没走完退货流程，直播间退货率会明显偏低（单日可能接近 0），'
       + '看水平请用整月或更长区间。';
+  }
+  /* 无明细商品要主动解释，否则「达播为什么是空的」每次都要人工答一遍 */
+  const nMiss = rows.filter(g => g.live === null).length;
+  if (nMiss > 0) {
+    s += '<br><b>本表 ' + rows.length + ' 个商品中有 ' + nMiss + ' 个三列显示「—」</b>（典型是「达播」整组）：'
+      + '它们在订单明细里没有成交记录。订单明细只覆盖自播场次的订单（本区间 ' + nL + ' 个商品有明细），'
+      + '而本区间筛选出的 ' + (F.sessions.length || 0) + ' 场里没有一场是达播（达人合作）——'
+      + '达播不在源表导出范围，所以拿不到归因。这部分销售只体现在左侧店铺列；'
+      + '要补直播归因，得从达人后台单独导出达播场次明细。';
   }
   /* 口径差必须写在明面上：两列的分子分母来源都不同，比大小会得出错误结论 */
   const shopPay = rows.reduce((t, g) => t + (g.pay || 0), 0);
