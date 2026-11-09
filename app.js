@@ -255,6 +255,8 @@ const F = {
   cmp: 'prev',
   yoyFrom: '', yoyTo: '', yoySessions: [], hasYoy: false,
   grain: 'day', barCollapsed: false,
+  /* 活动名候选多（32 个节奏），默认折叠，展开后换行铺开 */
+  rnOpen: false,
 };
 
 /* 五维度定义：与需求「总控 5 个板块」一一对应 */
@@ -324,7 +326,11 @@ function aggGoods(from, to) {
 /* 维度候选值 + 场次计数，用于总控条渲染与「反选」 */
 function dimOptions(k) {
   const cnt = new Map();
+  const rtSel = F.dims.rt;
   for (const s of (F.sessionsBase || D.sessions)) {
+    /* 活动名是类型的下级：选定类型后只列该类型下的活动名，
+       否则会出现「类型选了活动、活动名却列着日销」的自相矛盾 */
+    if (k === 'rn' && rtSel && !rtSel.has(s.rt || '')) continue;
     const v = k === 'mg' ? (s.mg || '无机制') : (s[k] || '');
     if (v === '' || v === undefined) continue;
     cnt.set(v, (cnt.get(v) || 0) + 1);
@@ -359,6 +365,15 @@ function normalizeDim(k) {
   if (!cur) return;
   const all = dimOptions(k).map(x => x[0]);
   if (cur.size === 0 || cur.size >= all.length) F.dims[k] = null;
+}
+
+/* 类型变化后，已选活动名若不在新候选里就剔除，
+   避免「类型选了活动、活动名却停在日销」导致筛出 0 场 */
+function pruneRn() {
+  if (!F.dims.rn || !F.dims.rt) return;
+  const all = new Set(dimOptions('rn').map(x => x[0]));
+  const keep = [...F.dims.rn].filter(v => all.has(v));
+  F.dims.rn = (keep.length && keep.length < all.size) ? new Set(keep) : null;
 }
 
 function dimToggle(k, v) {
@@ -411,6 +426,7 @@ function setRange(from, to, preset) {
 
   /* 先按日期取全集，再按五个维度过滤；店铺侧数据没有维度字段，只按日期 */
   F.sessionsBase = D.sessions.filter(s => s.d >= from && s.d <= to);
+  pruneRn();
   F.sessions = F.sessionsBase.filter(passDim);
   F.dimActive = F.sessions.length !== F.sessionsBase.length;
   F.shop = D.shopAll.filter(x => x.d >= from && x.d <= to);
@@ -487,9 +503,10 @@ function syncBar() {
     c.classList.toggle('on', c.dataset.c === F.cmp);
   });
 
+  renderDimGroup('rt', 'chRt', '类型');
+  renderDimGroup('rn', 'chRn', '活动名');
   renderDimGroup('sh', 'chSh', '班次');
   renderDimGroup('an', 'chAn', '主播');
-  renderDimGroup('rn', 'chRn', '活动');
   renderDimGroup('mg', 'chMg', '机制');
 
   /* 大场标记源表没有，如实标为待补，不用别的字段冒充 */
@@ -497,35 +514,45 @@ function syncBar() {
   if (mgHost) mgHost.insertAdjacentHTML('beforeend',
     '<button type="button" class="chip dchip ghost" disabled title="大场名单需人工上传；源表现仅有「下单加赠箱套」等机制标记，无大场标识">大场（待补）</button>');
 
-  const rtHost = document.getElementById('chRt');
-  if (rtHost) {
-    const cur = F.dims.rt;
-    const opts = [['日销', '日销'], ['活动', '活动']];
-    rtHost.innerHTML = `<button type="button" class="chip dchip${cur ? '' : ' on'}" data-dim="rt" data-v="">不限</button>`
-      + opts.map(([v, t]) => `<button type="button" class="chip dchip${cur && cur.has(v) ? ' on' : ''}"
-          data-dim="rt" data-v="${v}">${t}</button>`).join('');
-  }
-
   const meta = document.getElementById('fbarMeta');
   if (meta) {
     const cmpLab = F.cmp === 'yoy' ? '同比' : '环比';
+    /* 注记只留区间，场次数放进 title：首行宽度已经到极限，重复信息会让摘要被裁掉 */
+    const cmpOk = F.cmp === 'yoy' ? F.hasYoy : !!(F.prevSessions && F.prevSessions.length);
     const cmpTxt = F.cmp === 'yoy'
       ? (F.hasYoy
-        ? `${F.yoyFrom.slice(2)}~${F.yoyTo.slice(5)} · ${F.yoySessions.length} 场`
-        : (F.yoyFrom < F.min ? '无（去年早于数据起点）' : '无（去年同期无场次）'))
-      : (F.prevSessions && F.prevSessions.length
-        ? `${F.prevFrom.slice(5)}~${F.prevTo.slice(5)} · ${F.prevSessions.length} 场`
-        : '无（已到数据起点）');
+        ? `${F.yoyFrom.slice(2)}~${F.yoyTo.slice(5)}`
+        : (F.yoyFrom < F.min ? '不可用' : '不可用'))
+      : (cmpOk ? `${F.prevFrom.slice(5)}~${F.prevTo.slice(5)}` : '不可用');
+    const cmpWhy = F.cmp === 'yoy'
+      ? (F.hasYoy ? `去年同期 ${F.yoyFrom} → ${F.yoyTo}，共 ${F.yoySessions.length} 场`
+        : (F.yoyFrom < F.min
+          ? `去年同期 ${F.yoyFrom} 早于数据起点 ${F.min}，同比不成立，指标留空`
+          : `去年同期 ${F.yoyFrom} → ${F.yoyTo} 无场次`))
+      : (cmpOk ? `对比期 ${F.prevFrom} → ${F.prevTo}，共 ${F.prevSessions.length} 场`
+        : '区间已顶到数据起点，没有上一等长区间可对比');
+
+    /* 当前区间已在左侧两个日期框里显示，摘要不再重复，只留天数与场次 */
     meta.innerHTML =
-      `<span><b>${F.from.slice(5)} → ${F.to.slice(5)}</b> · ${F.days} 天 · <b>${F.roll.n}</b> 场</span>`
+      `<span class="fb-sum"><b>${F.days}</b> 天 · <b>${F.roll.n}</b> 场</span>`
       + (F.dimActive
         ? `<span class="sp"></span><span class="fb-filtered">筛选后 <b>${F.sessions.length}</b> / ${F.sessionsBase.length}</span>`
         : '');
     const note = document.getElementById('fbCmpNote');
     if (note) {
-      note.textContent = `${cmpLab}期 ${cmpTxt}`;
-      note.className = 'fb-cmpnote' + (F.cmp === 'yoy' && !F.hasYoy ? ' mute' : '');
+      note.textContent = cmpOk ? `vs ${cmpTxt}` : `${cmpLab} ${cmpTxt}`;
+      note.title = cmpWhy;
+      note.className = 'fb-cmpnote' + (cmpOk ? '' : ' mute');
     }
+  }
+
+  /* 行级换行统一在这里设置：活动名与机制同属一行，
+     若由各组自行 toggle，后渲染的「机制」会把换行状态清掉 */
+  document.querySelectorAll('.fb-row.wraprow').forEach(el => el.classList.remove('wraprow'));
+  if (F.rnOpen) {
+    const rnHost = document.getElementById('chRn');
+    const row = rnHost && rnHost.closest('.fb-row');
+    if (row) row.classList.add('wraprow');
   }
 
   const reset = document.getElementById('fbReset');
@@ -535,16 +562,37 @@ function syncBar() {
   if (tg) tg.textContent = F.barCollapsed ? '展开维度' : '收起';
 }
 
+/* 活动名折叠阈值：再多就折叠成「更多 +N」，不铺横向滚动条 */
+const RN_FOLD = 4;
+/* 活动名「日销」与外层类型「日销」同名，加后缀区分两者不是一回事 */
+const RN_ALIAS = { '日销': '日销（常规）' };
+
 /* 一组维度 chips：候选值按场次数量排序，选中态高亮，点击切换 */
 function renderDimGroup(k, hostId, unit) {
   const host = document.getElementById(hostId);
   if (!host) return;
   const opts = dimOptions(k);
   const cur = F.dims[k];
-  host.innerHTML =
-    `<button type="button" class="chip dchip${cur ? '' : ' on'}" data-dim="${k}" data-v="">全部</button>`
-    + opts.map(([v, n]) => `<button type="button" class="chip dchip${cur && cur.has(v) ? ' on' : ''}"
-        data-dim="${k}" data-v="${escAttr(v)}" title="${escAttr(v)} · ${n} 场">${escTxt(v)}<i>${n}</i></button>`).join('');
+  const label = v => (k === 'rn' && RN_ALIAS[v]) ? RN_ALIAS[v] : v;
+
+  const foldable = (k === 'rn') && opts.length > RN_FOLD + 1;
+  const open = foldable && !!F.rnOpen;
+  const shown = (foldable && !open) ? opts.slice(0, RN_FOLD) : opts;
+  /* 每组「全量」按钮写清指向：类型组叫「不限类型」、活动名组叫「全部活动」，
+     否则同一行并排两个「不限/全部」根本分不出各管哪一组 */
+  const allLab = (k === 'rt') ? '不限类型'
+    : (k === 'rn') ? '全部活动' : '全部';
+
+  let html = `<button type="button" class="chip dchip${cur ? '' : ' on'}" data-dim="${k}" data-v="">${allLab}</button>`;
+  html += shown.map(([v, n]) => `<button type="button" class="chip dchip${cur && cur.has(v) ? ' on' : ''}"
+        data-dim="${k}" data-v="${escAttr(v)}" title="${escAttr(v)} · ${n} 场">${escTxt(label(v))}<i>${n}</i></button>`).join('');
+  if (foldable) {
+    html += open
+      ? `<button type="button" class="chip more" data-fold="rn" title="收起活动名">收起</button>`
+      : `<button type="button" class="chip more" data-fold="rn" title="展开全部 ${opts.length} 个活动名">更多 +${opts.length - RN_FOLD}</button>`;
+  }
+  host.innerHTML = html;
+  host.classList.toggle('wrap', open);
 }
 
 function escTxt(s) {
@@ -629,50 +677,69 @@ function mountShell() {
   if (fb) {
     fb.className = 'fbar';
     fb.innerHTML = `<div class="fbar-in fbg">
+      <!-- 第 1 行：只看时间。预设 → 精确日期 → 粒度 → 对比口径，由粗到细 -->
       <div class="fb-row">
-        <span class="fbar-lab">时间维度</span>
-        <div class="chips">
-          ${PRESETS.map(p => `<button type="button" class="chip" data-p="${p.k}">${p.t}</button>`).join('')}
+        <div class="fb-g">
+          <span class="fb-glab">时间</span>
+          <div class="chips">
+            ${PRESETS.map(p => `<button type="button" class="chip" data-p="${p.k}">${p.t}</button>`).join('')}
+          </div>
         </div>
         <div class="dr">
           <input type="date" id="dFrom" aria-label="开始日期">
           <span class="to">→</span>
           <input type="date" id="dTo" aria-label="结束日期">
         </div>
-        <span class="fbar-lab sub">粒度</span>
-        <div class="chips">
-          ${GRAINS.map(g => `<button type="button" class="chip" data-g="${g.k}">${g.t}</button>`).join('')}
+        <div class="fb-g sep">
+          <span class="fb-glab">粒度</span>
+          <div class="chips">
+            ${GRAINS.map(g => `<button type="button" class="chip" data-g="${g.k}" title="${g.k === 'auto' ? '按区间长度自动选择' : ''}">${g.t}</button>`).join('')}
+          </div>
         </div>
-        <span class="fbar-lab sub">对比</span>
-        <div class="chips">
-          <button type="button" class="chip" data-c="prev" title="与上一等长区间对比">环比</button>
-          <button type="button" class="chip" data-c="yoy" title="与去年同期同一区间对比">同比</button>
+        <div class="fb-g sep">
+          <span class="fb-glab">对比</span>
+          <div class="chips">
+            <button type="button" class="chip" data-c="prev" title="与上一等长区间对比">环比</button>
+            <button type="button" class="chip" data-c="yoy" title="与去年同期同一区间对比">同比</button>
+          </div>
+          <span class="fb-cmpnote" id="fbCmpNote"></span>
         </div>
-        <span class="fb-cmpnote" id="fbCmpNote"></span>
-        <button type="button" class="fb-toggle" id="fbToggle">收起</button>
+        <div class="fb-right">
+          <span class="fbar-meta" id="fbarMeta"></span>
+          <button type="button" class="btn-reset" id="fbReset">重置</button>
+          <button type="button" class="fb-toggle" id="fbToggle">收起</button>
+        </div>
       </div>
 
       <div class="fb-body">
+        <!-- 第 2 行：谁在播。班次是时间切片，主播是人，两者同级 -->
         <div class="fb-row">
-          <span class="fbar-lab">场次维度</span>
-          <div class="chips" id="chSh"></div>
-          <button type="button" class="fb-act" data-inv="sh">反选</button>
-          <span class="fbar-lab">主播维度</span>
-          <div class="chips scrolly" id="chAn"></div>
-          <button type="button" class="fb-act" data-inv="an">反选</button>
-          <div class="fbar-meta" id="fbarMeta"></div>
-          <button type="button" class="btn-reset" id="fbReset">重置维度</button>
+          <div class="fb-g">
+            <span class="fb-glab">班次</span>
+            <div class="chips" id="chSh"></div>
+            <button type="button" class="fb-act" data-inv="sh" title="反选班次">反选</button>
+          </div>
+          <div class="fb-g sep grow">
+            <span class="fb-glab">主播</span>
+            <div class="chips scrolly" id="chAn"></div>
+            <button type="button" class="fb-act" data-inv="an" title="反选主播">反选</button>
+          </div>
         </div>
 
+        <!-- 第 3 行：播的什么。店铺活动是「类型 › 活动名」父子结构，机制是直播间的另一套标记 -->
         <div class="fb-row">
-          <span class="fbar-lab">店铺活动</span>
-          <div class="chips" id="chRt"></div>
-          <span class="fb-sub">活动名</span>
-          <div class="chips scrolly wide" id="chRn"></div>
-          <button type="button" class="fb-act" data-inv="rn">反选</button>
-          <span class="fbar-lab">直播间机制</span>
-          <div class="chips" id="chMg"></div>
-          <button type="button" class="fb-act" data-inv="mg">反选</button>
+          <div class="fb-g">
+            <span class="fb-glab">店铺活动</span>
+            <div class="chips" id="chRt"></div>
+            <span class="fb-arrow" aria-hidden="true">›</span>
+            <div class="chips" id="chRn"></div>
+            <button type="button" class="fb-act" data-inv="rn" title="反选活动名">反选</button>
+          </div>
+          <div class="fb-g sep">
+            <span class="fb-glab">直播间机制</span>
+            <div class="chips" id="chMg"></div>
+            <button type="button" class="fb-act" data-inv="mg" title="反选机制">反选</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -691,6 +758,12 @@ function mountShell() {
     });
     fb.querySelectorAll('#chRt, #chSh, #chAn, #chRn, #chMg').forEach(host => {
       host.onclick = e => {
+        /* 「更多 +N」/「收起」在 chips 容器内，必须先拦下，不能当维度处理 */
+        if (e.target.closest('[data-fold]')) {
+          F.rnOpen = !F.rnOpen;
+          syncBar();
+          return;
+        }
         const b = e.target.closest('.dchip');
         if (!b) return;
         const k = b.dataset.dim, v = b.dataset.v;

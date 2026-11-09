@@ -131,34 +131,46 @@ a { color: inherit; }
   gap: 0; padding: 5px 28px 6px;
 }
 .fb-row {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 10px;
   min-height: 33px; flex-wrap: nowrap;
 }
-/* 固定宽度的组不参与压缩，只有候选值多的组才伸缩滚动 */
 .fb-row > * { flex: 0 0 auto; }
-.fb-row > .chips.scrolly { flex: 1 1 auto; min-width: 0; }
-.fb-row.last {
-  border-top: 1px solid var(--line-2); margin-top: 2px; padding-top: 3px;
-}
+/* 活动名展开后整行铺开换行，不再把右侧的机制组挤出去 */
+.fb-row.wraprow { flex-wrap: wrap; row-gap: 5px; padding-bottom: 4px; }
 .fb-body.collapsed { display: none; }
-.fbar-lab {
-  font-size: 11px; color: var(--ink-3); letter-spacing: .1em;
-  padding-right: 10px; border-right: 1px solid var(--line-2); margin-right: 2px;
-  white-space: nowrap;
+
+/* 一个维度 = 一组：标签 + 候选值 + 反选。组间一条竖线，边界不靠猜 */
+.fb-g { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.fb-g.sep { padding-left: 11px; border-left: 1px solid var(--line); }
+/* 只允许收缩、不主动撑满：反选按钮才会紧跟候选值，不被推到行尾孤零零 */
+.fb-g.grow { flex: 0 1 auto; min-width: 0; }
+.fb-glab {
+  font-size: 10.5px; color: var(--ink-4); letter-spacing: .06em;
+  white-space: nowrap; flex: 0 0 auto;
 }
-.fbar-lab.sub { border-right: none; padding-right: 0; padding-left: 6px; margin-right: 0; }
-.chips { display: flex; gap: 3px; background: var(--bg); padding: 2px; border-radius: 3px; }
-/* 候选值多的维度（主播 / 活动名）横向滚动，不换行挤压其他维度 */
-.chips.scrolly {
-  overflow-x: auto; overflow-y: hidden; max-width: 40vw;
-  scrollbar-width: thin; background: var(--bg);
+/* 父子关系符：类型 › 活动名 */
+.fb-arrow {
+  color: var(--ink-3); font-size: 15px; line-height: 1; font-weight: 600;
+  flex: 0 0 auto; margin: 0 -3px; transform: translateY(-1px);
 }
-.chips.scrolly.wide { max-width: 60vw; }
+.fb-right {
+  margin-left: auto; display: flex; align-items: center; gap: 10px;
+  flex: 0 0 auto;
+}
+.chips {
+  display: flex; gap: 3px; background: var(--bg); padding: 2px;
+  border-radius: 3px; flex: 0 0 auto; min-width: 0;
+}
+/* 组内唯一允许压缩的组（主播 / 活动名展开）才滚动或换行 */
+.fb-g.grow > .chips.scrolly { flex: 1 1 auto; }
+.chips.scrolly { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 .chips.scrolly::-webkit-scrollbar { height: 3px; }
 .chips.scrolly::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
 .chips.scrolly > .chip { flex: 0 0 auto; }
+/* 展开态：换行铺开，替代原来那条横向滚动条 */
+.chips.wrap { flex-wrap: wrap; max-width: min(74vw, 960px); }
 .chip {
-  font-size: 12px; color: var(--ink-2); padding: 4px 10px; border-radius: 2px;
+  font-size: 12px; color: var(--ink-2); padding: 3px 9px; border-radius: 2px;
   cursor: pointer; white-space: nowrap; transition: .12s; user-select: none;
   border: none; background: transparent; font-family: inherit;
 }
@@ -177,7 +189,12 @@ a { color: inherit; }
   border: 1px dashed var(--line); background: transparent;
 }
 .dchip.ghost:hover { color: var(--ink-4); background: transparent; }
-.fb-sub { font-size: 10.5px; color: var(--ink-4); white-space: nowrap; margin-left: 2px; }
+/* 展开按钮：与维度 chip 区分开，不抢选中态的视觉权重 */
+.chip.more {
+  font-size: 11px; color: var(--gold-d); background: #fff;
+  border: 1px solid var(--line); padding: 2px 8px;
+}
+.chip.more:hover { color: var(--ink); border-color: var(--gold); background: #fff; }
 /* 对比期注记：紧跟对比口径 chips，过长省略，避免把维度组挤扁 */
 .fb-cmpnote {
   font-size: 10.5px; color: var(--ink-3); white-space: nowrap;
@@ -187,11 +204,11 @@ a { color: inherit; }
 .fb-cmpnote.mute { color: var(--ink-4); }
 .fb-act, .fb-toggle {
   font-size: 10.5px; color: var(--ink-3); background: #fff;
-  border: 1px solid var(--line); border-radius: 2px; padding: 3px 7px;
+  border: 1px solid var(--line); border-radius: 2px; padding: 2px 6px;
   cursor: pointer; font-family: inherit; white-space: nowrap; flex: 0 0 auto;
+  line-height: 1.5;
 }
 .fb-act:hover, .fb-toggle:hover { color: var(--ink); border-color: var(--gold); }
-.fb-toggle { margin-left: auto; }
 .fb-filtered b { color: var(--gold-d); }
 .dr { display: flex; align-items: center; gap: 6px; margin-left: 4px; }
 .dr input[type="date"] {
@@ -202,7 +219,7 @@ a { color: inherit; }
 }
 .dr input[type="date"]:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 2px rgba(201,169,98,.16); }
 .dr .to { color: var(--ink-4); font-size: 11px; }
-.fbar-meta { margin-left: auto; display: flex; align-items: center; gap: 14px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+.fbar-meta { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 .fbar-meta b { color: var(--ink); font-weight: 600; }
 .fbar-meta .sp { width: 1px; height: 13px; background: var(--line); }
 .btn-reset {
@@ -451,6 +468,17 @@ td.name-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* ================= 响应式 ================= */
+/* 首行要装 7 个预设 + 区间 + 粒度 + 对比 + 摘要 + 收起，
+   视口窄于 1360 时按组整体折行，不要把摘要和收起裁掉 */
+@media (max-width: 1360px) {
+  .fb-row { flex-wrap: wrap; row-gap: 5px; gap: 8px; }
+  /* 实测首行在 1280 下超出约 42px：收紧 chip 左右留白即可装下，
+     不必靠折行或截断 */
+  .chip { padding: 3px 7px; }
+  /* 区间已在日期框里、场次数在页面标题里，窄屏不再重复；
+     但「筛选后 X / Y」是操作反馈，必须留下 */
+  .fb-sum { display: none; }
+}
 @media (max-width: 1180px) {
   .g6 { grid-template-columns: repeat(3, minmax(0,1fr)); }
   .g5 { grid-template-columns: repeat(3, minmax(0,1fr)); }
@@ -459,9 +487,9 @@ td.name-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
   .fbar-in { height: auto; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; gap: 8px; }
   .fbar-in.fbg { padding-top: 6px; padding-bottom: 6px; }
   .fb-row { flex-wrap: wrap; row-gap: 6px; }
+  .fb-g.sep { padding-left: 8px; }
   .chips.scrolly { max-width: 100%; }
-  .fb-toggle { margin-left: 0; }
-  .fbar-meta { margin-left: 0; width: 100%; }
+  .fbar-meta { width: 100%; order: 3; }
   .stamp-age { display: none; }
   .stamp-pop::before { right: 74px; }
 }
