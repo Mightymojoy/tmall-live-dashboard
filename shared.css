@@ -116,7 +116,7 @@ a { color: inherit; }
 .sp-hr { height: 1px; background: var(--line); margin: 7px 0 6px; }
 .sp-tip { font-size: 10.5px; color: var(--ink-4); line-height: 1.6; }
 
-/* ================= 日期筛选条 ================= */
+/* ================= 五维度总控筛选条 ================= */
 .fbar {
   position: sticky; top: 58px; z-index: 39;
   background: #fff; border-bottom: 1px solid var(--line);
@@ -125,12 +125,38 @@ a { color: inherit; }
   max-width: 1360px; margin: 0 auto; padding: 0 28px;
   height: 52px; display: flex; align-items: center; gap: 12px;
 }
+/* 总控条：三行结构，时间维度常驻，其余维度可收起 */
+.fbar-in.fbg {
+  height: auto; flex-direction: column; align-items: stretch;
+  gap: 0; padding: 5px 28px 6px;
+}
+.fb-row {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 33px; flex-wrap: nowrap;
+}
+/* 固定宽度的组不参与压缩，只有候选值多的组才伸缩滚动 */
+.fb-row > * { flex: 0 0 auto; }
+.fb-row > .chips.scrolly { flex: 1 1 auto; min-width: 0; }
+.fb-row.last {
+  border-top: 1px solid var(--line-2); margin-top: 2px; padding-top: 3px;
+}
+.fb-body.collapsed { display: none; }
 .fbar-lab {
   font-size: 11px; color: var(--ink-3); letter-spacing: .1em;
   padding-right: 10px; border-right: 1px solid var(--line-2); margin-right: 2px;
   white-space: nowrap;
 }
-.chips { display: flex; gap: 2px; background: var(--bg); padding: 2px; border-radius: 3px; }
+.fbar-lab.sub { border-right: none; padding-right: 0; padding-left: 6px; margin-right: 0; }
+.chips { display: flex; gap: 3px; background: var(--bg); padding: 2px; border-radius: 3px; }
+/* 候选值多的维度（主播 / 活动名）横向滚动，不换行挤压其他维度 */
+.chips.scrolly {
+  overflow-x: auto; overflow-y: hidden; max-width: 40vw;
+  scrollbar-width: thin; background: var(--bg);
+}
+.chips.scrolly.wide { max-width: 60vw; }
+.chips.scrolly::-webkit-scrollbar { height: 3px; }
+.chips.scrolly::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+.chips.scrolly > .chip { flex: 0 0 auto; }
 .chip {
   font-size: 12px; color: var(--ink-2); padding: 4px 10px; border-radius: 2px;
   cursor: pointer; white-space: nowrap; transition: .12s; user-select: none;
@@ -138,6 +164,35 @@ a { color: inherit; }
 }
 .chip:hover { color: var(--ink); background: #fff; }
 .chip.on { background: var(--ink); color: #fff; font-weight: 500; }
+/* 维度 chip 带场次计数，选中态底色深，计数必须跟着变亮 */
+.dchip i {
+  font-style: normal; font-size: 9px; margin-left: 4px;
+  color: var(--ink-4); font-variant-numeric: tabular-nums;
+}
+.dchip i::before { content: '·'; margin-right: 3px; opacity: .7; }
+.dchip.on i { color: rgba(255, 255, 255, .62); }
+/* 待补维度：明确不可选，避免被当成「没数据=0」 */
+.dchip.ghost {
+  color: var(--ink-4); cursor: not-allowed;
+  border: 1px dashed var(--line); background: transparent;
+}
+.dchip.ghost:hover { color: var(--ink-4); background: transparent; }
+.fb-sub { font-size: 10.5px; color: var(--ink-4); white-space: nowrap; margin-left: 2px; }
+/* 对比期注记：紧跟对比口径 chips，过长省略，避免把维度组挤扁 */
+.fb-cmpnote {
+  font-size: 10.5px; color: var(--ink-3); white-space: nowrap;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+  margin-left: 2px;
+}
+.fb-cmpnote.mute { color: var(--ink-4); }
+.fb-act, .fb-toggle {
+  font-size: 10.5px; color: var(--ink-3); background: #fff;
+  border: 1px solid var(--line); border-radius: 2px; padding: 3px 7px;
+  cursor: pointer; font-family: inherit; white-space: nowrap; flex: 0 0 auto;
+}
+.fb-act:hover, .fb-toggle:hover { color: var(--ink); border-color: var(--gold); }
+.fb-toggle { margin-left: auto; }
+.fb-filtered b { color: var(--gold-d); }
 .dr { display: flex; align-items: center; gap: 6px; margin-left: 4px; }
 .dr input[type="date"] {
   font-family: inherit; font-size: 12px; color: var(--ink);
@@ -161,7 +216,7 @@ a { color: inherit; }
 .wrap { max-width: 1360px; margin: 0 auto; padding: 0 28px; }
 .page-hd {
   display: flex; align-items: flex-end; gap: 16px;
-  padding: 26px 0 18px;
+  padding: 16px 0 16px;
 }
 .page-hd h1 { font-size: 21px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
 .page-hd p { font-size: 12.5px; color: var(--ink-3); margin-top: 4px; }
@@ -225,6 +280,7 @@ a { color: inherit; }
 .kpi-t {
   font-size: 11.5px; color: var(--ink-3); letter-spacing: .03em;
   display: flex; align-items: center; gap: 6px; margin-bottom: 7px;
+  flex-wrap: wrap; row-gap: 3px;
 }
 .kpi-v {
   font-size: 25px; font-weight: 600; line-height: 1.15; letter-spacing: -.02em;
@@ -242,6 +298,15 @@ a { color: inherit; }
 .delta.up { color: var(--red); background: #fbf1ef; }
 .delta.down { color: var(--green); background: #eff6f1; }
 .delta.flat { color: var(--ink-3); background: var(--bg); }
+/* 环比 / 同比 双对比：两个小标签并排，主对比实、次对比淡 */
+.cmps { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; flex-wrap: wrap; }
+.cmp { display: inline-flex; align-items: center; gap: 3px; }
+.cmp i {
+  font-style: normal; font-size: 9px; color: var(--ink-4);
+  letter-spacing: .02em; white-space: nowrap;
+}
+.cmp.sub { opacity: .72; }
+.cmp .delta { font-size: 9.5px; padding: 0 4px; }
 
 /* ================= 图表 ================= */
 .chart { width: 100%; display: block; overflow: visible; }
@@ -392,6 +457,10 @@ td.name-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
   .g4 { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .g21, .g12 { grid-template-columns: minmax(0,1fr); }
   .fbar-in { height: auto; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; gap: 8px; }
+  .fbar-in.fbg { padding-top: 6px; padding-bottom: 6px; }
+  .fb-row { flex-wrap: wrap; row-gap: 6px; }
+  .chips.scrolly { max-width: 100%; }
+  .fb-toggle { margin-left: 0; }
   .fbar-meta { margin-left: 0; width: 100%; }
   .stamp-age { display: none; }
   .stamp-pop::before { right: 74px; }

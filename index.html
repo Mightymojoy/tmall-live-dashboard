@@ -64,7 +64,7 @@
   <section class="sec">
     <div class="sec-h">
       <span class="idx">04</span><h2>区间明细</h2><em id="detailSub"></em>
-      <div class="right">目标达成＝目标期内实际 ÷ 目标（目标表自 2026-10-01 起）· 最右列为成交环比</div>
+      <div class="right">目标达成＝目标期内实际 ÷ 目标（目标表自 2026-10-01 起）· 最右两列为成交环比 / 同比</div>
     </div>
     <div class="card flush"><div class="tbl-wrap scroll"><table id="detailTable"></table></div></div>
   </section>
@@ -103,33 +103,38 @@ function renderAll() {
 
 /* ---------------- 01 核心指标 ---------------- */
 function renderKPI() {
-  const a = F.roll, b = F.prevRoll;
+  const a = F.roll, b = F.prevRoll, y = F.yoyRoll;
   const pen = F.shipTotal ? a.gmv / F.shipTotal : null;
 
   document.getElementById('kpiRange').textContent = F.from + ' ~ ' + F.to;
-  document.getElementById('kpiCmp').innerHTML = F.prevRoll.n
-    ? '对比 <b>' + F.prevFrom + ' ~ ' + F.prevTo + '</b>（' + F.prevRoll.n + ' 场）'
-    : '<span style="color:#b3aea3">无对比期（已到数据起点）</span>';
+  document.getElementById('kpiCmp').innerHTML = F.cmp === 'yoy'
+    ? (F.hasYoy
+      ? '同比 <b>' + F.yoyFrom + ' ~ ' + F.yoyTo + '</b>（' + y.n + ' 场）'
+      : '<span style="color:#b3aea3">去年同期无数据，同比不可用</span>')
+    : (F.prevRoll.n
+      ? '环比 <b>' + F.prevFrom + ' ~ ' + F.prevTo + '</b>（' + F.prevRoll.n + ' 场）'
+      : '<span style="color:#b3aea3">无对比期（已到数据起点）</span>');
 
   const money = v => { const [n, u] = fmt.mpart(v); return { val: n, unit: u ? u + '元' : '元' }; };
   const M = money(a.gmv), N = money(a.net), H = money(a.hvGmv), U = fmt.mpart(a.hUv);
+  const penNote = F.dimActive ? ' · <span style="color:#b3352c">维度筛选时按店铺全量计</span>' : '';
 
   const items = [
-    { lab: '成交金额', ...M, key: 1, delta: deltaHtml(a.gmv, b.gmv), sub: '场均 <b>' + fmt.money(a.perSess) + '元</b> · ' + a.n + ' 场' },
-    { lab: '净销售', ...N, key: 1, delta: deltaHtml(a.net, b.net), sub: '退款 <b>' + fmt.money(a.rf) + '元</b>' },
-    { lab: '退款率', val: fmt.pct(a.rrate), unit: '', delta: deltaHtml(a.rrate, b.rrate, { pp: 1 }), sub: '低于对比期为好' },
-    { lab: '单小时 GMV', ...H, delta: deltaHtml(a.hvGmv, b.hvGmv), sub: '共 <b>' + fmt.dec1(a.durH) + ' 小时</b> · 场均 ' + fmt.dec1(a.durPer) + ' h' },
-    { lab: '时均 UV', val: U[0], unit: (U[1] || '') + '人', delta: deltaHtml(a.hUv, b.hUv), sub: '观看 <b>' + fmt.money(a.uv) + '</b> 人' },
-    { lab: '直播渗透率', val: pen === null ? '—' : (pen * 100).toFixed(1), unit: pen === null ? '' : '%', key: 1, sub: '发货额 <b>' + fmt.money(F.shipTotal) + '元</b>' },
+    { lab: '成交金额', ...M, key: 1, delta: cmpHtml(a.gmv, b.gmv, y.gmv), sub: '场均 <b>' + fmt.money(a.perSess) + '元</b> · ' + a.n + ' 场' },
+    { lab: '净销售', ...N, key: 1, delta: cmpHtml(a.net, b.net, y.net), sub: '退款 <b>' + fmt.money(a.rf) + '元</b>' },
+    { lab: '退款率', val: fmt.pct(a.rrate), unit: '', delta: cmpHtml(a.rrate, b.rrate, y.rrate, { pp: 1 }), sub: '低于对比期为好' },
+    { lab: '单小时 GMV', ...H, delta: cmpHtml(a.hvGmv, b.hvGmv, y.hvGmv), sub: '共 <b>' + fmt.dec1(a.durH) + ' 小时</b> · 场均 ' + fmt.dec1(a.durPer) + ' h' },
+    { lab: '时均 UV', val: U[0], unit: (U[1] || '') + '人', delta: cmpHtml(a.hUv, b.hUv, y.hUv), sub: '观看 <b>' + fmt.money(a.uv) + '</b> 人' },
+    { lab: '直播渗透率', val: pen === null ? '—' : (pen * 100).toFixed(1), unit: pen === null ? '' : '%', key: 1, sub: '发货额 <b>' + fmt.money(F.shipTotal) + '元</b>' + penNote },
   ];
   document.getElementById('kpis').innerHTML = kpiHtml(items);
 }
 
 /* ---------------- 02 趋势 ---------------- */
 function renderTrend() {
-  const grain = grainOf(F.days);
+  const grain = F.grain;
   const rows = trimTail(groupByGrain(F.sessions, grain), grain);
-  const gname = { day: '按日', week: '按周', month: '按月' }[grain];
+  const gname = GRAIN_NAME[grain];
 
   document.getElementById('trendSub').textContent = gname + ' · ' + rows.length + ' 个区间';
   document.getElementById('trendGrain').textContent = gname + '汇总';
@@ -150,7 +155,7 @@ function renderTrend() {
     maxXLabels: 10,
     peakLabel: true,
     tipTitle: (lb, i) => {
-      if (grain === 'month') return rows[i].k;
+      if (grain === 'month' || grain === 'quarter') return rows[i].k;
       if (grain === 'week') return rows[i].k + ' 起一周';
       return rows[i].k;
     },
@@ -208,20 +213,28 @@ function renderPen() {
 
 /* ---------------- 04 明细 ---------------- */
 function renderDetail() {
-  const grain = grainOf(F.days);
+  const grain = F.grain;
   const rows = groupByGrain(F.sessions, grain).slice().reverse();
-  const gname = { day: '日期', week: '周起始', month: '月份' }[grain];
-  document.getElementById('detailSub').textContent = { day: '按日', week: '按周', month: '按月' }[grain] + ' · 共 ' + rows.length + ' 行';
+  const gname = GRAIN_COL[grain];
+  document.getElementById('detailSub').textContent = GRAIN_NAME[grain] + ' · 共 ' + rows.length + ' 行';
 
-  let html = '<thead><tr><th>' + gname + '</th><th>场次</th><th>成交金额</th><th>目标达成</th><th>退款金额</th><th>净销售</th>'
-    + '<th>退款率</th><th>单小时GMV</th><th>时均UV</th><th>转化率</th><th>客单价</th><th>成交环比</th></tr></thead><tbody>';
+  /* 逐桶同比：去年同期同一分桶的成交额；同比不可用时整列留空，不给假数 */
+  const yMap = F.hasYoy
+    ? new Map(groupByGrain(F.yoySessions, grain).map(r => [r.k, r.gmv]))
+    : new Map();
+
+  let html = '<thead><tr><th>' + gname + '</th><th>场次</th><th>成交金额</th><th>成交环比</th><th>成交同比</th>'
+    + '<th>目标达成</th><th>退款金额</th><th>净销售</th>'
+    + '<th>退款率</th><th>单小时GMV</th><th>时均UV</th><th>转化率</th><th>客单价</th></tr></thead><tbody>';
 
   const tBucket = tgt.byBucket(grain);
   const aBucket = tgt.actualByBucket(grain, F.sessions);
   rows.forEach((r, i) => {
     const prev = rows[i + 1];
     const d = prev ? deltaHtml(r.gmv, prev.gmv) : '<span class="delta flat">—</span>';
-    const partial = r.days < (grain === 'month' ? 15 : grain === 'week' ? 5 : 1) && i === 0;
+    const yv = yMap.get(yoyKey(r.k, grain));
+    const dy = (yv === undefined || yv === null) ? '<span class="delta flat">—</span>' : deltaHtml(r.gmv, yv);
+    const partial = r.days < (grain === 'quarter' ? 60 : grain === 'month' ? 15 : grain === 'week' ? 5 : 1) && i === 0;
     const T = tBucket.get(r.k) || 0;
     const A = aBucket.get(r.k) || 0;
     const rate = tgt.rate(A, T);
@@ -229,6 +242,8 @@ function renderDetail() {
       + '<td>' + r.k + (partial ? ' <span class="tag mute">不完整</span>' : '') + '</td>'
       + '<td class="num">' + r.n + '</td>'
       + '<td class="num">' + fmt.money(r.gmv) + '</td>'
+      + '<td class="num">' + d + '</td>'
+      + '<td class="num">' + dy + '</td>'
       + '<td class="num">' + (rate === null ? '<span style="color:#b3aea3">无目标</span>'
         : '<span title="目标期内实际 ' + fmt.yuan(A) + ' / 目标 ' + fmt.yuan(T) + '">'
         + goalPill(rate) + '</span><span style="font-size:9.5px;color:#a8a29a;margin-left:4px">'
@@ -240,7 +255,6 @@ function renderDetail() {
       + '<td class="num">' + fmt.int(r.hUv) + '</td>'
       + '<td class="num">' + fmt.pct(r.conv, 2) + '</td>'
       + '<td class="num">' + fmt.yuan(r.aov) + '</td>'
-      + '<td class="num">' + d + '</td>'
       + '</tr>';
   });
 
@@ -251,6 +265,8 @@ function renderDetail() {
   html += '</tbody><tfoot><tr>'
     + '<td>区间合计</td><td class="num">' + t.n + '</td>'
     + '<td class="num">' + fmt.money(t.gmv) + '</td>'
+    + '<td class="num">' + deltaHtml(t.gmv, F.prevRoll.gmv) + '</td>'
+    + '<td class="num">' + (F.hasYoy ? deltaHtml(t.gmv, F.yoyRoll.gmv) : '<span class="delta flat">—</span>') + '</td>'
     + '<td class="num">' + (tRate === null ? '—'
       : '<span title="目标期内实际 ' + fmt.yuan(tAct) + ' / 目标 ' + fmt.yuan(tSum) + '">'
       + goalPill(tRate) + '</span><span style="font-size:9.5px;color:#a8a29a;margin-left:4px">'
@@ -262,7 +278,6 @@ function renderDetail() {
     + '<td class="num">' + fmt.int(t.hUv) + '</td>'
     + '<td class="num">' + fmt.pct(t.conv, 2) + '</td>'
     + '<td class="num">' + fmt.yuan(t.aov) + '</td>'
-    + '<td class="num">' + deltaHtml(t.gmv, F.prevRoll.gmv) + '</td>'
     + '</tr></tfoot>';
 
   document.getElementById('detailTable').innerHTML = html;

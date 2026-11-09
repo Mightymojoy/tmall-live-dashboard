@@ -76,6 +76,11 @@ const dU = {
     return dU.iso(new Date(d.getFullYear(), d.getMonth() + 1, 0));
   },
   yearMonth(s) { return s.slice(0, 7); },
+  /* 自然季度，键形如 2026-Q4，字符串排序即时间序 */
+  quarterOf(s) {
+    const y = s.slice(0, 4), m = Number(s.slice(5, 7));
+    return y + '-Q' + Math.ceil(m / 3);
+  },
 };
 
 /* ---------------- 汇总 ---------------- */
@@ -238,10 +243,27 @@ function goalPill(r, txt) {
 const F = {
   from: '', to: '', preset: '30', days: 0,
   prevFrom: '', prevTo: '',
-  sessions: [], shop: [], goods: [],
+  sessions: [], sessionsBase: [], shop: [], goods: [],
   prevSessions: [], liveByDay: new Map(),
   min: '', max: '',
+  /* 五个维度的筛选状态：null = 不限，Set = 选中集合 */
+  dims: { sh: null, an: null, rt: null, rn: null, mg: null },
+  dimActive: false,
+  /* 粒度：auto 由区间长度推导，其余为手工锁定 */
+  grainPref: 'auto',
+  /* 对比口径：prev = 上一等长区间（环比），yoy = 去年同期（同比） */
+  cmp: 'prev',
+  yoyFrom: '', yoyTo: '', yoySessions: [], hasYoy: false,
+  grain: 'day', barCollapsed: false,
 };
+
+/* 五维度定义：与需求「总控 5 个板块」一一对应 */
+const DIMS = [
+  { k: 'sh', lab: '场次维度', ttl: '按开播时间划分班次', multi: true },
+  { k: 'an', lab: '主播维度', ttl: '按排班主播过滤，仅含真人主播场次', multi: true },
+  { k: 'rn', lab: '店铺活动', ttl: '官方活动节奏名，可与「日销 / 活动」叠加', multi: true },
+  { k: 'mg', lab: '直播间机制', ttl: '直播间机制标签（大场名单需人工上传，当前仅少量场次有值）', multi: true },
+];
 
 const PRESETS = [
   { k: '7', t: '近 7 天' },
@@ -251,6 +273,15 @@ const PRESETS = [
   { k: 'lastmonth', t: '上月' },
   { k: 'half', t: '近半年' },
   { k: 'all', t: '全部' },
+];
+
+/* 时间维度粒度：auto 按区间长度自动推导 */
+const GRAINS = [
+  { k: 'auto', t: '自动' },
+  { k: 'day', t: '日' },
+  { k: 'week', t: '周' },
+  { k: 'month', t: '月' },
+  { k: 'quarter', t: '季' },
 ];
 
 const _listeners = [];
@@ -289,6 +320,82 @@ function aggGoods(from, to) {
   return out;
 }
 
+/* ---------------- 维度过滤 ---------------- */
+/* 维度候选值 + 场次计数，用于总控条渲染与「反选」 */
+function dimOptions(k) {
+  const cnt = new Map();
+  for (const s of (F.sessionsBase || D.sessions)) {
+    const v = k === 'mg' ? (s.mg || '无机制') : (s[k] || '');
+    if (v === '' || v === undefined) continue;
+    cnt.set(v, (cnt.get(v) || 0) + 1);
+  }
+  const arr = [...cnt.entries()];
+  /* 班次按「数字人→早→中→晚」固定顺序，不按数量排，否则顺序随窗口跳动 */
+  if (k === 'sh') {
+    return arr.sort((a, b) => SHIFTS.indexOf(a[0]) - SHIFTS.indexOf(b[0]));
+  }
+  return arr.sort((a, b) => b[1] - a[1]);
+}
+
+function dimVal(s, k) {
+  if (k === 'mg') return s.mg || '无机制';
+  return s[k] || '';
+}
+
+/* 五个维度必须同时满足；null 表示该维度不限 */
+function passDim(s) {
+  const d = F.dims;
+  if (d.sh && !d.sh.has(s.sh)) return false;
+  if (d.an && !d.an.has(dimVal(s, 'an'))) return false;
+  if (d.rt && !d.rt.has(dimVal(s, 'rt'))) return false;
+  if (d.rn && !d.rn.has(dimVal(s, 'rn'))) return false;
+  if (d.mg && !d.mg.has(dimVal(s, 'mg'))) return false;
+  return true;
+}
+
+/* 选中集合如果等于全部候选，等价于不限，置回 null 避免「假筛选」 */
+function normalizeDim(k) {
+  const cur = F.dims[k];
+  if (!cur) return;
+  const all = dimOptions(k).map(x => x[0]);
+  if (cur.size === 0 || cur.size >= all.length) F.dims[k] = null;
+}
+
+function dimToggle(k, v) {
+  let cur = F.dims[k] ? new Set(F.dims[k]) : new Set(dimOptions(k).map(x => x[0]));
+  if (cur.has(v)) cur.delete(v); else cur.add(v);
+  F.dims[k] = cur.size ? cur : null;
+  normalizeDim(k);
+  setRange(F.from, F.to, F.preset);
+}
+
+function dimAll(k) {
+  F.dims[k] = null;
+  setRange(F.from, F.to, F.preset);
+}
+
+/* 反选：先展开成全部候选，再整体取反 */
+function dimInvert(k) {
+  const all = dimOptions(k).map(x => x[0]);
+  const cur = F.dims[k] || new Set(all);
+  const next = all.filter(v => !cur.has(v));
+  F.dims[k] = next.length ? new Set(next) : null;
+  normalizeDim(k);
+  setRange(F.from, F.to, F.preset);
+}
+
+function resetDims() {
+  F.dims = { sh: null, an: null, rt: null, rn: null, mg: null };
+  setRange(F.from, F.to, F.preset);
+}
+
+function shiftYear(s, n) {
+  const [y, m, d] = s.split('-').map(Number);
+  const ny = y + n;
+  const last = new Date(ny, m, 0).getDate();
+  return ny + '-' + String(m).padStart(2, '0') + '-' + String(Math.min(d, last)).padStart(2, '0');
+}
+
 function setRange(from, to, preset) {
   const { min, max } = F;
   if (!from || from < min) from = min;
@@ -302,10 +409,23 @@ function setRange(from, to, preset) {
   F.prevFrom = dU.add(from, -F.days);
   if (F.prevFrom < min) F.prevFrom = min;
 
-  F.sessions = D.sessions.filter(s => s.d >= from && s.d <= to);
+  /* 先按日期取全集，再按五个维度过滤；店铺侧数据没有维度字段，只按日期 */
+  F.sessionsBase = D.sessions.filter(s => s.d >= from && s.d <= to);
+  F.sessions = F.sessionsBase.filter(passDim);
+  F.dimActive = F.sessions.length !== F.sessionsBase.length;
   F.shop = D.shopAll.filter(x => x.d >= from && x.d <= to);
   F.goods = aggGoods(from, to);
-  F.prevSessions = D.sessions.filter(s => s.d >= F.prevFrom && s.d <= F.prevTo);
+  F.prevSessions = D.sessions.filter(s => s.d >= F.prevFrom && s.d <= F.prevTo).filter(passDim);
+
+  /* 同比：去年同一区间（2 月 29 日向前顺延到 2 月 28 日）
+     去年同期必须完整落在数据起点之后，否则窗口会和本期重叠、或被截断，
+     算出来的「同比」是两段时间拼出来的假数——宁可标不可用，也不给错数。 */
+  F.yoyFrom = shiftYear(from, -1);
+  F.yoyTo = shiftYear(to, -1);
+  F.yoySessions = (F.yoyFrom >= F.min)
+    ? D.sessions.filter(s => s.d >= F.yoyFrom && s.d <= F.yoyTo).filter(passDim)
+    : [];
+  F.hasYoy = F.yoySessions.length > 0;
 
   F.liveByDay = new Map();
   for (const s of F.sessions) {
@@ -319,27 +439,119 @@ function setRange(from, to, preset) {
   F.payTotal = F.shop.reduce((t, x) => t + (x.pay || 0), 0);
   F.roll = calc.rollup(F.sessions);
   F.prevRoll = calc.rollup(F.prevSessions);
+  F.yoyRoll = calc.rollup(F.yoySessions);
+  F.grain = F.grainPref === 'auto' ? grainOf(F.days) : F.grainPref;
 
-  syncInputs();
-  const q = (location.pathname.split('/').pop() || '') + '?f=' + from + '&t=' + to;
+  syncBar();
+  const q = (location.pathname.split('/').pop() || '') + '?' + stateQuery();
   try { history.replaceState(null, '', q); } catch (e) { /* file:// 下忽略 */ }
   fireFilter();
 }
 
-function syncInputs() {
+/* URL 状态：日期 + 粒度 + 对比 + 五维度，便于分享与刷新还原 */
+function stateQuery() {
+  const p = new URLSearchParams();
+  p.set('f', F.from); p.set('t', F.to);
+  if (F.grainPref !== 'auto') p.set('g', F.grainPref);
+  if (F.cmp !== 'prev') p.set('c', F.cmp);
+  for (const k of ['sh', 'an', 'rt', 'rn', 'mg']) {
+    if (F.dims[k]) p.set(k, [...F.dims[k]].join(','));
+  }
+  return p.toString();
+}
+
+function setGrain(g) {
+  F.grainPref = g;
+  setRange(F.from, F.to, F.preset);
+}
+
+function setCmp(c) {
+  F.cmp = c;
+  syncBar();
+  fireFilter();
+}
+
+/* 总控条状态同步：日期、预设、粒度、对比、五维度高亮与计数 */
+function syncBar() {
   const a = document.getElementById('dFrom'), b = document.getElementById('dTo');
   if (a) a.value = F.from;
   if (b) b.value = F.to;
-  const meta = document.getElementById('fbarMeta');
-  if (meta) {
-    meta.innerHTML =
-      `<span>当前区间 <b>${F.from} → ${F.to}</b> · ${F.days} 天 · ${F.roll.n} 场</span>` +
-      `<span class="sp"></span>` +
-      `<span>对比期 ${prevRangeLabel()}</span>`;
-  }
+
   document.querySelectorAll('.chip[data-p]').forEach(c => {
     c.classList.toggle('on', c.dataset.p === F.preset);
   });
+  document.querySelectorAll('.chip[data-g]').forEach(c => {
+    c.classList.toggle('on', c.dataset.g === F.grainPref);
+  });
+  document.querySelectorAll('.chip[data-c]').forEach(c => {
+    c.classList.toggle('on', c.dataset.c === F.cmp);
+  });
+
+  renderDimGroup('sh', 'chSh', '班次');
+  renderDimGroup('an', 'chAn', '主播');
+  renderDimGroup('rn', 'chRn', '活动');
+  renderDimGroup('mg', 'chMg', '机制');
+
+  /* 大场标记源表没有，如实标为待补，不用别的字段冒充 */
+  const mgHost = document.getElementById('chMg');
+  if (mgHost) mgHost.insertAdjacentHTML('beforeend',
+    '<button type="button" class="chip dchip ghost" disabled title="大场名单需人工上传；源表现仅有「下单加赠箱套」等机制标记，无大场标识">大场（待补）</button>');
+
+  const rtHost = document.getElementById('chRt');
+  if (rtHost) {
+    const cur = F.dims.rt;
+    const opts = [['日销', '日销'], ['活动', '活动']];
+    rtHost.innerHTML = `<button type="button" class="chip dchip${cur ? '' : ' on'}" data-dim="rt" data-v="">不限</button>`
+      + opts.map(([v, t]) => `<button type="button" class="chip dchip${cur && cur.has(v) ? ' on' : ''}"
+          data-dim="rt" data-v="${v}">${t}</button>`).join('');
+  }
+
+  const meta = document.getElementById('fbarMeta');
+  if (meta) {
+    const cmpLab = F.cmp === 'yoy' ? '同比' : '环比';
+    const cmpTxt = F.cmp === 'yoy'
+      ? (F.hasYoy
+        ? `${F.yoyFrom.slice(2)}~${F.yoyTo.slice(5)} · ${F.yoySessions.length} 场`
+        : (F.yoyFrom < F.min ? '无（去年早于数据起点）' : '无（去年同期无场次）'))
+      : (F.prevSessions && F.prevSessions.length
+        ? `${F.prevFrom.slice(5)}~${F.prevTo.slice(5)} · ${F.prevSessions.length} 场`
+        : '无（已到数据起点）');
+    meta.innerHTML =
+      `<span><b>${F.from.slice(5)} → ${F.to.slice(5)}</b> · ${F.days} 天 · <b>${F.roll.n}</b> 场</span>`
+      + (F.dimActive
+        ? `<span class="sp"></span><span class="fb-filtered">筛选后 <b>${F.sessions.length}</b> / ${F.sessionsBase.length}</span>`
+        : '');
+    const note = document.getElementById('fbCmpNote');
+    if (note) {
+      note.textContent = `${cmpLab}期 ${cmpTxt}`;
+      note.className = 'fb-cmpnote' + (F.cmp === 'yoy' && !F.hasYoy ? ' mute' : '');
+    }
+  }
+
+  const reset = document.getElementById('fbReset');
+  if (reset) reset.style.visibility = (F.dimActive || F.grainPref !== 'auto') ? 'visible' : 'hidden';
+  document.querySelectorAll('.fb-body').forEach(el => el.classList.toggle('collapsed', !!F.barCollapsed));
+  const tg = document.getElementById('fbToggle');
+  if (tg) tg.textContent = F.barCollapsed ? '展开维度' : '收起';
+}
+
+/* 一组维度 chips：候选值按场次数量排序，选中态高亮，点击切换 */
+function renderDimGroup(k, hostId, unit) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const opts = dimOptions(k);
+  const cur = F.dims[k];
+  host.innerHTML =
+    `<button type="button" class="chip dchip${cur ? '' : ' on'}" data-dim="${k}" data-v="">全部</button>`
+    + opts.map(([v, n]) => `<button type="button" class="chip dchip${cur && cur.has(v) ? ' on' : ''}"
+        data-dim="${k}" data-v="${escAttr(v)}" title="${escAttr(v)} · ${n} 场">${escTxt(v)}<i>${n}</i></button>`).join('');
+}
+
+function escTxt(s) {
+  return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+function escAttr(s) {
+  return escTxt(s).replace(/"/g, '&quot;');
 }
 
 /* 上一等长区间；若已顶到数据起点则如实说明，不伪造对比 */
@@ -416,22 +628,80 @@ function mountShell() {
   const fb = document.getElementById('fbar');
   if (fb) {
     fb.className = 'fbar';
-    fb.innerHTML = `<div class="fbar-in">
-      <span class="fbar-lab">日期范围</span>
-      <div class="chips">
-        ${PRESETS.map(p => `<button class="chip" data-p="${p.k}">${p.t}</button>`).join('')}
+    fb.innerHTML = `<div class="fbar-in fbg">
+      <div class="fb-row">
+        <span class="fbar-lab">时间维度</span>
+        <div class="chips">
+          ${PRESETS.map(p => `<button type="button" class="chip" data-p="${p.k}">${p.t}</button>`).join('')}
+        </div>
+        <div class="dr">
+          <input type="date" id="dFrom" aria-label="开始日期">
+          <span class="to">→</span>
+          <input type="date" id="dTo" aria-label="结束日期">
+        </div>
+        <span class="fbar-lab sub">粒度</span>
+        <div class="chips">
+          ${GRAINS.map(g => `<button type="button" class="chip" data-g="${g.k}">${g.t}</button>`).join('')}
+        </div>
+        <span class="fbar-lab sub">对比</span>
+        <div class="chips">
+          <button type="button" class="chip" data-c="prev" title="与上一等长区间对比">环比</button>
+          <button type="button" class="chip" data-c="yoy" title="与去年同期同一区间对比">同比</button>
+        </div>
+        <span class="fb-cmpnote" id="fbCmpNote"></span>
+        <button type="button" class="fb-toggle" id="fbToggle">收起</button>
       </div>
-      <div class="dr">
-        <input type="date" id="dFrom" aria-label="开始日期">
-        <span class="to">→</span>
-        <input type="date" id="dTo" aria-label="结束日期">
+
+      <div class="fb-body">
+        <div class="fb-row">
+          <span class="fbar-lab">场次维度</span>
+          <div class="chips" id="chSh"></div>
+          <button type="button" class="fb-act" data-inv="sh">反选</button>
+          <span class="fbar-lab">主播维度</span>
+          <div class="chips scrolly" id="chAn"></div>
+          <button type="button" class="fb-act" data-inv="an">反选</button>
+          <div class="fbar-meta" id="fbarMeta"></div>
+          <button type="button" class="btn-reset" id="fbReset">重置维度</button>
+        </div>
+
+        <div class="fb-row">
+          <span class="fbar-lab">店铺活动</span>
+          <div class="chips" id="chRt"></div>
+          <span class="fb-sub">活动名</span>
+          <div class="chips scrolly wide" id="chRn"></div>
+          <button type="button" class="fb-act" data-inv="rn">反选</button>
+          <span class="fbar-lab">直播间机制</span>
+          <div class="chips" id="chMg"></div>
+          <button type="button" class="fb-act" data-inv="mg">反选</button>
+        </div>
       </div>
-      <div class="fbar-meta" id="fbarMeta"></div>
     </div>`;
 
     fb.querySelectorAll('.chip[data-p]').forEach(c => {
       c.onclick = () => { const [a, b] = presetRange(c.dataset.p); setRange(a, b, c.dataset.p); };
     });
+    fb.querySelectorAll('.chip[data-g]').forEach(c => {
+      c.onclick = () => setGrain(c.dataset.g);
+    });
+    fb.querySelectorAll('.chip[data-c]').forEach(c => {
+      c.onclick = () => setCmp(c.dataset.c);
+    });
+    fb.querySelectorAll('.fb-act[data-inv]').forEach(b => {
+      b.onclick = () => dimInvert(b.dataset.inv);
+    });
+    fb.querySelectorAll('#chRt, #chSh, #chAn, #chRn, #chMg').forEach(host => {
+      host.onclick = e => {
+        const b = e.target.closest('.dchip');
+        if (!b) return;
+        const k = b.dataset.dim, v = b.dataset.v;
+        if (v === '') dimAll(k); else dimToggle(k, v);
+      };
+    });
+    const tg = document.getElementById('fbToggle');
+    if (tg) tg.onclick = () => { F.barCollapsed = !F.barCollapsed; syncBar(); };
+    const rs = document.getElementById('fbReset');
+    if (rs) rs.onclick = () => { F.grainPref = 'auto'; resetDims(); };
+
     const a = document.getElementById('dFrom'), b = document.getElementById('dTo');
     a.max = F.max; b.max = F.max; a.min = F.min; b.min = F.min;
     a.onchange = () => setRange(a.value, F.to, 'custom');
@@ -446,6 +716,17 @@ function initFilter(def = '30') {
     preset = def;
     const r = presetRange(def);
     from = r[0]; to = r[1];
+  }
+  /* URL 还原粒度、对比口径与五维度（分享链接可复现同一视图） */
+  const g = u.get('g');
+  if (g && GRAINS.some(x => x.k === g)) F.grainPref = g;
+  const c = u.get('c');
+  if (c === 'yoy') F.cmp = c;
+  for (const k of ['sh', 'an', 'rt', 'rn', 'mg']) {
+    const raw = u.get(k);
+    if (!raw) continue;
+    const set = new Set(raw.split(',').filter(Boolean));
+    if (set.size) F.dims[k] = set;
   }
   setRange(from, to, preset);
 }
@@ -474,18 +755,36 @@ function detectPreset() {
 function grainOf(days) {
   if (days <= 45) return 'day';
   if (days <= 150) return 'week';
-  return 'month';
+  if (days <= 400) return 'month';
+  return 'quarter';
 }
 
 function grainLabel(d, grain) {
+  if (grain === 'quarter') return d.slice(2).replace('-Q', ' Q');
   if (grain === 'month') return d.slice(2, 7).replace('-', '/');
   return fmt.md(d);
 }
 
+/* 区间在某个粒度下的分桶键 */
+function grainKey(d, grain) {
+  if (grain === 'day') return d;
+  if (grain === 'week') return dU.weekStart(d);
+  if (grain === 'quarter') return dU.quarterOf(d);
+  return dU.yearMonth(d);
+}
+
+const GRAIN_NAME = { day: '按日', week: '按周', month: '按月', quarter: '按季' };
+const GRAIN_COL = { day: '日期', week: '周起始', month: '月份', quarter: '季度' };
+
+/* 当前分桶对应的去年同期分桶键，用于逐桶同比 */
+function yoyKey(k, grain) {
+  if (grain === 'day') return shiftYear(k, -1);
+  if (grain === 'week') return dU.weekStart(shiftYear(k, -1));
+  return (Number(k.slice(0, 4)) - 1) + k.slice(4);
+}
+
 function groupByGrain(sessions, grain) {
-  const key = grain === 'day' ? (s => s.d)
-    : grain === 'week' ? (s => dU.weekStart(s.d))
-      : (s => dU.yearMonth(s.d));
+  const key = s => grainKey(s.d, grain);
   const m = calc.group(sessions, key);
   return [...m.keys()].sort().map(k => {
     const arr = m.get(k);
@@ -496,10 +795,10 @@ function groupByGrain(sessions, grain) {
   });
 }
 
-/* 末尾不完整的月/周不进趋势图，否则会被读成断崖式下跌 */
+/* 末尾不完整的月/周/季不进趋势图，否则会被读成断崖式下跌 */
 function trimTail(rows, grain) {
   if (!rows.length) return rows;
-  const need = grain === 'month' ? 15 : grain === 'week' ? 5 : 1;
+  const need = grain === 'quarter' ? 60 : grain === 'month' ? 15 : grain === 'week' ? 5 : 1;
   return rows[rows.length - 1].days < need ? rows.slice(0, -1) : rows;
 }
 
@@ -516,6 +815,21 @@ function deltaHtml(cur, prev, opt = {}) {
   const dir = Math.abs(v) < (opt.pp ? 0.0005 : 0.0005) ? 'flat' : (v > 0 ? 'up' : 'down');
   const arrow = dir === 'flat' ? '·' : (v > 0 ? '▲' : '▼');
   return `<span class="delta ${dir}">${arrow} ${txt.replace(/^[+-]/, '')}</span>`;
+}
+
+/* 双对比：同一指标同时给环比与同比，两个数各带标签，不挤在一处 */
+function cmpHtml(cur, prev, yoy, opt = {}) {
+  const h = F.cmp === 'yoy' ? yoy : prev;
+  const lab = F.cmp === 'yoy' ? '同比' : '环比';
+  const other = F.cmp === 'yoy' ? prev : yoy;
+  const otherLab = F.cmp === 'yoy' ? '环比' : '同比';
+  const v = (h === null || h === undefined || !h) && opt.zeroOk !== true ? '<span class="delta flat">—</span>' : deltaHtml(cur, h, opt);
+  const o = (other === null || other === undefined || !other)
+    ? '<span class="delta flat">—</span>' : deltaHtml(cur, other, opt);
+  return `<span class="cmps">`
+    + `<span class="cmp"><i>${lab}</i>${v}</span>`
+    + `<span class="cmp sub"><i>${otherLab}</i>${o}</span>`
+    + `</span>`;
 }
 
 function kpiHtml(items) {

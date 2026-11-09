@@ -120,6 +120,8 @@
   padding: 10px 16px 11px; display: flex; flex-direction: column; gap: 7px;
   margin-bottom: 22px;
 }
+/* 筛选已并入顶部总控，页内这块整体隐藏（改 display 会盖掉 [hidden]，必须显式声明） */
+.afbar[hidden] { display: none; }
 .af-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 26px; }
 .af-lab {
   font-size: 11px; color: var(--ink-3); letter-spacing: .1em; flex: none;
@@ -173,7 +175,8 @@
     <div class="hd-right" id="hdRight"></div>
   </div>
 
-  <div class="afbar">
+  <!-- 页内筛选已并入顶部五维度总控条（主播维度 / 店铺活动维度），此处保留结构备用 -->
+  <div class="afbar" id="afbar" hidden>
     <div class="af-row">
       <span class="af-lab">主播</span>
       <div class="chips" id="anChips"></div>
