@@ -64,8 +64,9 @@
 .mtx thead th {
   background: #fff; border: none; border-bottom: 2px solid var(--line);
   text-align: center; font-size: 12px; font-weight: 600; color: var(--ink);
-  padding: 6px 6px 8px; position: sticky; top: 0; z-index: 3; white-space: nowrap;
+  padding: 6px 6px 8px; position: sticky; top: 58px; z-index: 3; white-space: nowrap;
 }
+/* 顶栏高 58px 且自身 sticky，表头若贴 top:0 会被顶栏盖住，往下让 58px 才对得齐 */
 .mtx thead th .sh {
   display: block; font-size: 9.5px; font-weight: 400; color: var(--ink-4);
   margin-top: 2px; letter-spacing: .02em;
@@ -92,6 +93,39 @@
 }
 .mtx td.best { font-weight: 700; }
 .mtx td .bst { position: absolute; right: 4px; top: 3px; font-size: 7.5px; opacity: .42; line-height: 1; }
+
+/* 表头主播名可点：点一下把 TA 从对比里去掉，全页数据随之重算 */
+.mtx thead th.pick { cursor: pointer; transition: background .12s, color .12s; }
+.mtx thead th.pick:hover { background: #FBF5E8; color: var(--gold-d); }
+.mtx thead th.pick:hover .sh { color: var(--gold-d); opacity: .8; }
+#rankTable td.pick { cursor: pointer; }
+#rankTable td.pick:hover b { color: var(--gold-d); }
+#rankTable td.pick:hover { background: #FBF5E8; }
+
+/* 已去掉主播的恢复条 */
+.an-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 14px; margin-bottom: 10px;
+  border: 1px solid var(--line); border-left: 2px solid var(--gold);
+  background: #FDFBF5; font-size: 11.5px; color: var(--ink-2);
+}
+.an-bar[hidden] { display: none; }
+.ab-lab b { color: var(--gold-d); font-size: 12.5px; }
+.ab-chip {
+  font: inherit; font-size: 11px; cursor: pointer; line-height: 1.5;
+  border: 1px solid var(--line); background: #fff; color: var(--ink-2);
+  padding: 2px 8px; border-radius: 2px; display: inline-flex; align-items: center; gap: 5px;
+}
+.ab-chip:hover { border-color: var(--gold); color: var(--gold-d); }
+.ab-chip i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.ab-chip em { font-style: normal; color: var(--gold-d); font-weight: 700; }
+.ab-hint { color: var(--ink-3); font-size: 10.5px; }
+.ab-reset {
+  margin-left: auto; font: inherit; font-size: 11px; cursor: pointer; line-height: 1.5;
+  padding: 3px 12px; border: 1px solid var(--gold); background: #fff;
+  color: var(--gold-d); border-radius: 2px; font-weight: 600;
+}
+.ab-reset:hover { background: var(--gold); color: #fff; }
 .mtx td.sum, .mtx thead th.sum {
   background: #FBF8F1 !important; font-weight: 700; color: #6B5320;
   border-left: 1px solid var(--gold-l);
@@ -210,6 +244,7 @@
       </div>
     </div>
     <div class="goalbar" id="goalBar"></div>
+    <div class="an-bar" id="anBar" hidden></div>
     <div class="card flush">
       <div class="tbl-wrap" id="cmpWrap"></div>
       <div class="heat-legend" id="cmpLegend"></div>
@@ -273,6 +308,13 @@ const AC = ['#c9a962', '#3a5778', '#b3352c', '#2c6b4c', '#6a5b8f', '#8a6d2f', '#
     if (!b) return;
     if (b.dataset.all) { AF.an = null; renderAll(); return; }
     if (b.dataset.an) toggleAn(b.dataset.an);
+  });
+  /* 矩阵表头 / 排行明细的主播名：点一下就从这个主播的对比里去/留。
+     委托挂在容器上，内容重建后依然有效 */
+  document.getElementById('cmpWrap').addEventListener('click', e => {
+    const t = e.target.closest('.pick[data-an]');
+    if (!t) return;
+    toggleAn(t.dataset.an);
   });
   document.getElementById('tyChips').addEventListener('click', e => {
     const b = e.target.closest('button');
@@ -362,6 +404,7 @@ function renderAf() {
 
 function renderAll() {
   renderAf();
+  renderAnBar();
   renderWarn();
   renderCards();
   renderGoalBar();
@@ -491,6 +534,28 @@ function toggleAn(name) {
   /* 点到全空或点回全选，都还原为「全部」——主播页没有主播就没有可看的内容 */
   if (AF.an.size === 0 || AF.an.size === all.length) AF.an = null;
   renderAll();
+}
+
+/* 已去掉主播的恢复条。
+   列一旦去掉就没有表头可点了，必须留一个看得见、点得回来、能一键清空的地方，
+   否则只能靠顶部 chips 找回来，而 chips 在矩阵看不到的屏幕上方。 */
+function renderAnBar() {
+  const el = document.getElementById('anBar');
+  const all = availAnchors();
+  if (!AF.an) { el.hidden = true; el.innerHTML = ''; return; }
+  const off = all.filter(n => !AF.an.has(n));
+  if (!off.length) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  el.innerHTML = '<span class="ab-lab">已去掉 <b>' + off.length + '</b> 人，剩 <b>'
+    + AF.an.size + '</b> 人参与对比</span>'
+    + off.map(n => '<button type="button" class="ab-chip" data-an="' + n + '">'
+      + '<i style="background:' + colorOf(n) + '"></i>' + n + '<em>+</em></button>').join('')
+    + '<span class="ab-hint">点名字加回来</span>'
+    + '<button type="button" class="ab-reset" id="anReset">重置筛选</button>';
+  el.querySelectorAll('.ab-chip').forEach(b => {
+    b.onclick = () => toggleAn(b.dataset.an);
+  });
+  document.getElementById('anReset').onclick = () => { AF.an = null; renderAll(); };
 }
 
 /* 活动场次：多选。从「不限」直接点某个活动 = 只看这一个活动（符合直觉）；
@@ -639,9 +704,11 @@ function renderCmp() {
   const legend = document.getElementById('cmpLegend');
   const def = CMP.find(c => c.k === CMP_SORT);
 
+  /* 副标题要短：1280 及以下右侧还有工具按钮，文案一长就把它们挤出视口。
+     「已去掉几人」由 anBar 承担，不在这里重复 */
   document.getElementById('cmpSub').textContent =
     '按' + (def ? def.lab.replace(/\s/g, '') : '') + (CMP_DESC ? '降序' : '升序')
-    + ' · 点左侧指标名可换排序';
+    + ' · 点指标名换序 · 点主播名去掉';
 
   if (!rows.length) {
     wrap.innerHTML = '<div class="empty" style="border:none;margin:14px">所选区间内暂无主播场次</div>';
@@ -665,13 +732,15 @@ function renderCmp() {
   }
 
   document.getElementById('cmpTip').textContent = '金底＝该项占优　红底＝退款偏高　★＝该行最优';
+  const totLab = AF.an ? '已选合计' : '全员';
 
   let h = '<table class="mtx"><thead><tr><th class="rix">主播 / 指标</th>';
   rows.forEach(r => {
-    h += '<th style="border-top:2px solid ' + colorOf(r.an) + '">' + r.an
+    h += '<th class="pick" data-an="' + r.an + '" style="border-top:2px solid ' + colorOf(r.an) + '"'
+      + ' title="点一下把 ' + r.an + ' 从对比里去掉，全页数据同步重算">' + r.an
       + '<span class="sh">' + r.mainShift + '班 · ' + r.n + '场</span></th>';
   });
-  h += '<th class="sum">' + (AF.an ? '已选合计' : '全员') + '</th></tr></thead><tbody>';
+  h += '<th class="sum">' + totLab + '</th></tr></thead><tbody>';
 
   CMP.forEach(c => {
     /* 目标达成：色阶与「最优」都只在样本 ≥5 场的主播里定区间，
@@ -697,10 +766,10 @@ function renderCmp() {
       const good = c.d === -1 ? v <= totV : v >= totV;
       const tip = '<b>' + r.an + ' · ' + c.lab.replace(/\s/g, '') + '</b>'
         + '<div class="tt-row"><i style="background:' + colorOf(r.an) + '"></i>本项<b>' + c.f(r) + '</b></div>'
-        + '<div class="tt-row"><i style="background:#cfc9bb"></i>全员<b>' + c.f(tot) + '</b></div>'
+        + '<div class="tt-row"><i style="background:#cfc9bb"></i>' + totLab + '<b>' + c.f(tot) + '</b></div>'
         + (c.tip ? c.tip(r) : '')
         + (dlt === null || c.k === 'n' ? ''
-          : '<div class="tt-row"><i style="background:transparent"></i>相对全员<b style="color:'
+          : '<div class="tt-row"><i style="background:transparent"></i>相对' + totLab + '<b style="color:'
             + (good ? '#8a6d2f' : '#b3352c') + '">' + (dlt >= 0 ? '+' : '') + (dlt * 100).toFixed(0) + '%</b></div>');
       /* 目标达成：* = 该主播有场次当日目标为 0，已排除在达成率之外
          （样本 <5 场的情况表头已写场次数，不再另加符号，避免符号过多） */
@@ -752,7 +821,8 @@ function rankTableHtml(rows, t) {
   rows.forEach((r, i) => {
     html += '<tr>'
       + '<td style="color:#b3aea3" class="num">' + (i + 1) + '</td>'
-      + '<td><span class="dot" style="background:' + colorOf(r.an) + '"></span><b>' + r.an + '</b></td>'
+      + '<td class="pick" data-an="' + r.an + '" title="点一下把 ' + r.an + ' 从对比里去掉，全页数据同步重算">'
+      + '<span class="dot" style="background:' + colorOf(r.an) + '"></span><b>' + r.an + '</b></td>'
       + '<td class="num">' + r.n + (r.n < 8 ? ' <span class="tag mute">样本少</span>' : '') + '</td>'
       + '<td class="num">' + fmt.money(r.gmv) + '</td>'
       + '<td class="num" style="color:#8b867d">' + (r.tar ? fmt.money(r.tar) : '—') + '</td>'
